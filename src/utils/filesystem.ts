@@ -4,9 +4,9 @@ import path from "path";
 import { HubError } from "./errors";
 import { isExcludedSkillPath, isUnsafeRelativePath } from "./security";
 
-export const MAX_FILE_BYTES = 15_000_000;
-export const MAX_TREE_BYTES = 50_000_000;
-export const MAX_TREE_FILES = 2000;
+export const MAX_FILE_BYTES = 100_000_000;
+export const MAX_TREE_BYTES = 1_000_000_000;
+export const MAX_TREE_FILES = 100_000;
 
 export async function ensureDir(dir: string): Promise<void> {
   await mkdir(dir, { recursive: true });
@@ -108,8 +108,11 @@ export async function copyTree(source: string, destination: string): Promise<voi
     add(size: number) {
       total += size;
       count += 1;
-      if (count > MAX_TREE_FILES || total > MAX_TREE_BYTES) {
-        throw new HubError("component-too-large", "The component is larger than the install limit.");
+      if (count > MAX_TREE_FILES) {
+        throw new HubError("component-too-large", `The component has ${count} files, above the install limit of ${MAX_TREE_FILES}.`);
+      }
+      if (total > MAX_TREE_BYTES) {
+        throw new HubError("component-too-large", `The component is ${megabytes(total)} MB, above the install limit of ${megabytes(MAX_TREE_BYTES)} MB.`);
       }
     },
   });
@@ -152,7 +155,7 @@ async function copyInner(
       continue;
     }
     if (stat.size > MAX_FILE_BYTES) {
-      throw new HubError("component-too-large", `File "${relative}" exceeds the file size limit.`);
+      throw new HubError("component-too-large", `File "${relative}" is ${megabytes(stat.size)} MB, above the file limit of ${megabytes(MAX_FILE_BYTES)} MB.`);
     }
     budget.add(stat.size);
     await ensureDir(path.dirname(target));
@@ -173,6 +176,10 @@ export async function moveAside(target: string, aside: string): Promise<void> {
   await ensureDir(path.dirname(aside));
   const { rename } = await import("fs/promises");
   await rename(target, aside);
+}
+
+function megabytes(bytes: number): number {
+  return Math.max(1, Math.ceil(bytes / 1_000_000));
 }
 
 export async function pathExists(target: string): Promise<boolean> {

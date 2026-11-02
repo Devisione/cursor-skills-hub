@@ -5,6 +5,7 @@ import { InstallLocation, InstallScope } from "../core/types";
 import { agentStoreBases, builtinSkillsRoot, scannedSkillRoots, userPluginsHome, WorkspaceHint } from "../core/paths";
 import { checksumDirectory, copyTree, ensureDir, moveAside, pathExists, removeTree } from "../utils/filesystem";
 import { parseFrontmatter } from "../utils/frontmatter";
+import { errorMessage } from "../utils/errors";
 import { materializeRepo } from "../utils/git";
 import { isSafeComponentName } from "../utils/security";
 
@@ -199,13 +200,14 @@ export async function updateLockedBundle(input: {
   sourceName: string;
   onlyNames?: string[];
   addNew?: boolean;
-}): Promise<{ updated: number; added: number }> {
+}): Promise<{ updated: number; added: number; failures: string[] }> {
   const materialized = await materializeRepo({ url: input.sourceUrl });
   try {
     const lock = await readSkillLock(input.skillsRoot);
     const onlyNames = input.onlyNames ? new Set(input.onlyNames) : undefined;
     const directories = (await skillDirectories(materialized.directory, 6)).sort((left, right) => skillSourceRank(left) - skillSourceRank(right));
     const entries: Array<{ name: string; skillPath: string }> = [];
+    const failures: string[] = [];
     let updated = 0;
     let added = 0;
     for (const directory of directories) {
@@ -231,7 +233,12 @@ export async function updateLockedBundle(input: {
         const destination = path.join(input.skillsRoot, folder);
         const existed = await pathExists(destination);
         const wasOff = existed && await pathExists(path.join(destination, "SKILL.md.off")) && !(await pathExists(path.join(destination, "SKILL.md")));
-        await replaceSkillDirectory(input.skillsRoot, directory, destination);
+        try {
+          await replaceSkillDirectory(input.skillsRoot, directory, destination);
+        } catch (error) {
+          failures.push(`${folder}: ${errorMessage(error)}`);
+          continue;
+        }
         if (wasOff) {
           const enabledFile = path.join(destination, "SKILL.md");
           if (await pathExists(enabledFile)) {
@@ -247,7 +254,7 @@ export async function updateLockedBundle(input: {
       }
     }
     await rememberLockedSkills(input.skillsRoot, input.sourceName, input.sourceUrl, entries);
-    return { updated, added };
+    return { updated, added, failures };
   } finally {
     await materialized.cleanup();
   }
@@ -259,24 +266,30 @@ async function replaceSkillDirectory(skillsRoot: string, source: string, destina
   if (await pathExists(staging)) {
     await removeTree(staging, skillsRoot);
   }
-  await copyTree(source, staging);
-  const existed = await pathExists(destination);
-  if (existed) {
+  try {
+    await copyTree(source, staging);
+    const existed = await pathExists(destination);
+    if (existed) {
+      if (await pathExists(aside)) {
+        await removeTree(aside, skillsRoot);
+      }
+      await moveAside(destination, aside);
+    }
+    try {
+      await moveAside(staging, destination);
+    } catch (error) {
+      if (existed && await pathExists(aside) && !(await pathExists(destination))) {
+        await moveAside(aside, destination);
+      }
+      throw error;
+    }
     if (await pathExists(aside)) {
       await removeTree(aside, skillsRoot);
     }
-    await moveAside(destination, aside);
-  }
-  try {
-    await moveAside(staging, destination);
-  } catch (error) {
-    if (existed && await pathExists(aside) && !(await pathExists(destination))) {
-      await moveAside(aside, destination);
+  } finally {
+    if (await pathExists(staging)) {
+      await removeTree(staging, skillsRoot).catch(() => undefined);
     }
-    throw error;
-  }
-  if (await pathExists(aside)) {
-    await removeTree(aside, skillsRoot);
   }
 }
 

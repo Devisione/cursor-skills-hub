@@ -197,6 +197,19 @@ test("copy keeps component files inside the destination and skips secrets", asyn
   await assert.rejects(() => removeTree(root, root), /outside the install root/);
 });
 
+test("copies a component that used to exceed the 2000-file install cap", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "skills-hub-test-"));
+  const source = path.join(root, "source");
+  const destination = path.join(root, "dest");
+  await mkdir(source, { recursive: true });
+  await Promise.all(Array.from({ length: 2001 }, (_, index) => writeFile(path.join(source, `file-${index}.txt`), "x")));
+  await copyTree(source, destination);
+  assert.equal(await pathExists(path.join(destination, "file-0.txt")), true);
+  assert.equal(await pathExists(path.join(destination, "file-2000.txt")), true);
+  await removeTree(source, root);
+  await removeTree(destination, root);
+});
+
 function remoteSkill(id: string) {
   return {
     id,

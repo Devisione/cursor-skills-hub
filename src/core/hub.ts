@@ -16,7 +16,7 @@ import { discoverInstalledPlugins } from "../plugins/plugin-discovery";
 import { agentGridSkillPath, discoverInstalledSkills, forgetLockedSkills, publishSkillToAgentGrid, recordSkillSource, updateLockedBundle } from "../skills/skill-discovery";
 import { uninstallSkill } from "../skills/skill-installer";
 import { CacheManager } from "../storage/cache-manager";
-import { HubError, errorMessage } from "../utils/errors";
+import { HubError, errorCode, errorMessage } from "../utils/errors";
 import { marketplaceIdFor, parseGitUrl, repoSlug } from "../utils/github-url";
 import { Logger } from "../utils/logger";
 import { buildViewModel, searchCatalog, ViewModel } from "../ui/view-model";
@@ -325,8 +325,21 @@ export class Hub {
     if (!confirmed) {
       return;
     }
+    const failures: string[] = [];
     for (const component of pending) {
-      await this.install(component.id, undefined, false, undefined, true);
+      try {
+        await this.install(component.id, undefined, false, undefined, true);
+      } catch (error) {
+        if (errorCode(error) === "cancelled" || errorCode(error) === "busy") {
+          throw error;
+        }
+        const message = errorMessage(error);
+        this.logger.error("install", `${component.name}: ${message}`);
+        failures.push(`${component.name}: ${message}`);
+      }
+    }
+    if (failures.length) {
+      throw new HubError("install-failed", failures.join("\n"));
     }
   }
 
@@ -429,6 +442,9 @@ export class Hub {
     await this.run(`Updating ${name}`, async () => {
       const result = await updateLockedBundle({ sourceUrl: url, skillsRoot, sourceName, addNew: true });
       await this.refreshLocal();
+      if (result.failures.length) {
+        throw new HubError("install-failed", result.failures.join("\n"));
+      }
       void vscode.window.showInformationMessage(`Skills Hub: ${result.updated} updated, ${result.added} new.`);
     });
   }
@@ -454,6 +470,9 @@ export class Hub {
         addNew: false,
       });
       await this.refreshLocal();
+      if (result.failures.length) {
+        throw new HubError("install-failed", result.failures.join("\n"));
+      }
       void vscode.window.showInformationMessage(result.updated === 0 ? `Skills Hub: ${item.name} was not found in the repository.` : `Skills Hub: ${item.name} is updated.`);
     });
   }
@@ -560,8 +579,21 @@ export class Hub {
     if (!confirmed) {
       return;
     }
+    const failures: string[] = [];
     for (const target of targets) {
-      await this.update(target.id, false);
+      try {
+        await this.update(target.id, false);
+      } catch (error) {
+        if (errorCode(error) === "cancelled" || errorCode(error) === "busy") {
+          throw error;
+        }
+        const message = errorMessage(error);
+        this.logger.error("update", `${target.name}: ${message}`);
+        failures.push(`${target.name}: ${message}`);
+      }
+    }
+    if (failures.length) {
+      throw new HubError("install-failed", failures.join("\n"));
     }
   }
 
