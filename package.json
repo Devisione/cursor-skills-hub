@@ -1,0 +1,178 @@
+{
+  "name": "cursor-skills-hub",
+  "displayName": "Cursor Skills Hub",
+  "description": "Install Cursor Agent Skills and Plugins once, sync them through a private GitHub repository, and update them from the editor.",
+  "version": "0.1.19",
+  "publisher": "skills-hub",
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#101218",
+    "theme": "dark"
+  },
+  "keywords": [
+    "cursor",
+    "skills",
+    "plugins",
+    "github",
+    "sync"
+  ],
+  "funding": {
+    "type": "individual",
+    "url": "https://www.donationalerts.com/r/link_it"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Devisione/cursor-skills-hub.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Devisione/cursor-skills-hub/issues"
+  },
+  "homepage": "https://github.com/Devisione/cursor-skills-hub",
+  "engines": {
+    "vscode": "^1.99.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onView:skillsHub.main"
+  ],
+  "main": "./out/src/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "skills-hub",
+          "title": "Skills Hub",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "skills-hub": [
+        {
+          "type": "webview",
+          "id": "skillsHub.main",
+          "name": "Skills Hub"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "skillsHub.showDiagnostics",
+        "title": "Skills Hub: Show Diagnostics"
+      },
+      {
+        "command": "skillsHub.checkUpdates",
+        "title": "Skills Hub: Check for Updates"
+      },
+      {
+        "command": "skillsHub.sync",
+        "title": "Skills Hub: Sync"
+      },
+      {
+        "command": "skillsHub.pull",
+        "title": "Skills Hub: Pull"
+      },
+      {
+        "command": "skillsHub.push",
+        "title": "Skills Hub: Push"
+      },
+      {
+        "command": "skillsHub.addMarketplace",
+        "title": "Skills Hub: Add Marketplace"
+      },
+      {
+        "command": "skillsHub.refreshMarketplaces",
+        "title": "Skills Hub: Refresh Marketplaces"
+      },
+      {
+        "command": "skillsHub.focus",
+        "title": "Skills Hub: Focus"
+      }
+    ],
+    "configuration": {
+      "title": "Skills Hub",
+      "properties": {
+        "skillsHub.syncFrequency": {
+          "type": "string",
+          "enum": ["off", "startup", "hourly", "daily"],
+          "default": "daily",
+          "description": "How often Skills Hub compares this device with the GitHub configuration."
+        },
+        "skillsHub.automaticMarketplaceRefresh": {
+          "type": "boolean",
+          "default": true,
+          "description": "Refresh connected marketplace catalogs in the background. Catalog refresh never installs components."
+        },
+        "skillsHub.automaticUpdateChecks": {
+          "type": "boolean",
+          "default": true,
+          "description": "Check installed components for updates in the background."
+        },
+        "skillsHub.updateMode": {
+          "type": "string",
+          "enum": ["manual", "notify", "auto"],
+          "default": "notify",
+          "description": "Manual only lists updates. Notify asks before installing. Auto installs updates after a backup. Pinned versions are never updated automatically."
+        },
+        "skillsHub.updateNotifications": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a notification when updates are available."
+        },
+        "skillsHub.backupBeforeUpdate": {
+          "type": "boolean",
+          "default": true,
+          "description": "Keep a backup of the previous component files before an update."
+        },
+        "skillsHub.conflictResolution": {
+          "type": "string",
+          "enum": ["ask", "keep-local", "keep-remote"],
+          "default": "ask",
+          "description": "What to do when this device and GitHub both changed."
+        },
+        "skillsHub.installationScope": {
+          "type": "string",
+          "enum": ["user", "project"],
+          "default": "user",
+          "description": "Default installation scope. User scope is available in every workspace. Project scope stays inside the open workspace."
+        },
+        "skillsHub.defaultSkillLocation": {
+          "type": "string",
+          "enum": ["cursor-skills", "agents-skills"],
+          "default": "cursor-skills",
+          "description": "User and project skill directory. cursor-skills uses .cursor/skills. agents-skills uses .agents/skills. Cursor scans both."
+        },
+        "skillsHub.autoApproveTrustedInstalls": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow the agent to install skills from marketplaces you marked as trusted without a confirmation dialog."
+        },
+        "skillsHub.githubRepository": {
+          "type": "string",
+          "default": "",
+          "description": "GitHub repository that stores this device's Skills Hub configuration, in owner/name form."
+        }
+      }
+    },
+    "mcpServerDefinitionProviders": [
+      {
+        "id": "skillsHub.mcp",
+        "label": "Skills Hub"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p tsconfig.json --pretty false",
+    "watch": "tsc -p tsconfig.json --watch --pretty false",
+    "test": "npm run compile && node --test out/test/*.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "@types/vscode": "^1.99.0",
+    "typescript": "^5.8.3"
+  }
+}
