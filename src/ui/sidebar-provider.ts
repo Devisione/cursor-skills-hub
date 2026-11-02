@@ -133,6 +133,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       case "check":
         await this.hub.checkUpdates(true);
         return;
+      case "updateExtension":
+        await vscode.commands.executeCommand("skillsHub.updateExtension");
+        return;
+      case "reloadWindow":
+        await vscode.commands.executeCommand("workbench.action.reloadWindow");
+        return;
       case "donate":
         await vscode.env.openExternal(vscode.Uri.parse("https://www.donationalerts.com/r/link_it"));
         return;

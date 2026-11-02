@@ -45,6 +45,7 @@
     }
     app.replaceChildren(header());
     if (error) app.append(para(error, "error"));
+    if (model.extension && model.extension.phase !== "current") app.append(extensionBanner());
     if (model.conflict && screen === "main") app.append(conflict(model.conflict.reason));
     app.append(screen === "settings" ? settings() : main());
   }
@@ -633,8 +634,51 @@
     updates.append(settingCheck("Show a notification", "updateNotifications"));
     updates.append(settingCheck("Back up files before replacing them", "backupBeforeUpdate"));
     updates.append(settingCheck("Let the agent install from trusted sources without asking", "autoApproveTrustedInstalls"));
+    updates.append(para(extensionCopy(), "note"));
+    updates.append(extensionActions());
     wrap.append(github, sync, install, updates);
     return wrap;
+  }
+
+  function extensionCopy() {
+    const info = model.extension;
+    if (!info || !info.version) return "Skills Hub checks GitHub releases of this extension.";
+    if (info.latest && info.latest !== info.version) return `This copy is ${info.version}. GitHub has ${info.latest}.`;
+    return `This copy is ${info.version}.`;
+  }
+
+  function extensionActions() {
+    const info = model.extension;
+    const row = el("div", { class: "actions" });
+    if (info && info.phase === "installed") {
+      row.append(textButton("Reload", () => post("reloadWindow"), "primary"));
+      return row;
+    }
+    if (info && info.phase === "available") {
+      row.append(textButton("Update", () => post("updateExtension"), "primary"));
+      return row;
+    }
+    row.append(textButton("Check for updates", () => post("updateExtension"), "secondary"));
+    return row;
+  }
+
+  function extensionBanner() {
+    const info = model.extension;
+    const node = el("div", { class: "banner" });
+    if (info.phase === "installed") {
+      node.append(el("strong", {}, [`Skills Hub ${info.latest} is installed`]));
+      node.append(para("Reload Cursor to finish the update.", "note"));
+      const row = el("div", { class: "actions" });
+      row.append(textButton("Reload", () => post("reloadWindow"), "primary"));
+      node.append(row);
+      return node;
+    }
+    node.append(el("strong", {}, [`Skills Hub ${info.latest} is available`]));
+    node.append(para(`This copy is ${info.version}.`, "note"));
+    const row = el("div", { class: "actions" });
+    row.append(textButton("Update", () => post("updateExtension"), "primary"));
+    node.append(row);
+    return node;
   }
 
   function conflict(reason) {

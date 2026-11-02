@@ -19,7 +19,7 @@ import { CacheManager } from "../storage/cache-manager";
 import { HubError, errorCode, errorMessage } from "../utils/errors";
 import { marketplaceIdFor, parseGitUrl, repoSlug } from "../utils/github-url";
 import { Logger } from "../utils/logger";
-import { buildViewModel, searchCatalog, ViewModel } from "../ui/view-model";
+import { buildViewModel, ExtensionReleaseStatus, searchCatalog, ViewModel } from "../ui/view-model";
 import { installRoot, skillDeleteRoot } from "./paths";
 import { checksumDirectory, pathExists } from "../utils/filesystem";
 import { mkdtemp, rename, writeFile } from "fs/promises";
@@ -42,6 +42,7 @@ export class Hub {
   private writingConfig = false;
   private operation?: vscode.CancellationTokenSource;
   private syncTimer?: ReturnType<typeof setTimeout>;
+  private extensionStatus: ExtensionReleaseStatus;
 
   constructor(
     private readonly state: StateManager,
@@ -52,7 +53,18 @@ export class Hub {
     private readonly extensionVersion: string,
   ) {
     this.probe = probeCursorApis();
+    this.extensionStatus = { version: extensionVersion, latest: extensionVersion, phase: "current" };
     this.logger.info("probe", this.probe.conclusion);
+  }
+
+  setExtensionStatus(status: ExtensionReleaseStatus): void {
+    const same = this.extensionStatus.version === status.version
+      && this.extensionStatus.latest === status.latest
+      && this.extensionStatus.phase === status.phase;
+    this.extensionStatus = status;
+    if (!same) {
+      this.emit();
+    }
   }
 
   async start(hadState: boolean): Promise<void> {
@@ -84,6 +96,7 @@ export class Hub {
       probe: this.probe,
       conflictReason: this.conflictReason,
       errors: this.logger.recentErrors(),
+      extension: this.extensionStatus,
     });
   }
 
@@ -843,6 +856,7 @@ export class Hub {
       "# Skills Hub diagnostics",
       "",
       `- Extension: ${this.extensionVersion}`,
+      `- Extension release: ${this.extensionStatus.phase}`,
       `- Cursor: ${vscode.version}`,
       `- Git: ${git ?? "not found"}`,
       `- GitHub: ${this.connected ? this.login ?? "connected" : "disconnected"}`,

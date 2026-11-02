@@ -35,7 +35,14 @@ export interface CardModel {
   canSync: boolean;
 }
 
+export interface ExtensionReleaseStatus {
+  version: string;
+  latest: string;
+  phase: "current" | "available" | "installed";
+}
+
 export interface ViewModel {
+  extension: ExtensionReleaseStatus;
   overview: {
     installed: number;
     updates: number;
@@ -65,6 +72,7 @@ export function buildViewModel(input: {
   probe: ApiProbe;
   conflictReason?: string;
   errors: Array<{ at: string; area: string; message: string }>;
+  extension: ExtensionReleaseStatus;
 }): ViewModel {
   const installedById = new Map(input.state.installed.map((item) => [item.id, item]));
   const marketplaces = new Map(input.state.marketplaces.map((item) => [item.id, item]));
@@ -76,6 +84,7 @@ export function buildViewModel(input: {
   const updates = installedCards.filter((item) => item.updateAvailable);
   const errors = input.state.installed.filter((item) => item.status === "error" || item.status === "conflict").length + input.state.marketplaces.filter((item) => item.lastError).length;
   return {
+    extension: input.extension,
     overview: {
       installed: input.state.installed.length,
       updates: updates.length,

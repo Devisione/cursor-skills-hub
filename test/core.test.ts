@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, readFile, writeFile } from "fs/promises";
 import os from "os";
 import path from "path";
+import { Readable } from "stream";
 import { test } from "node:test";
 import { freshState } from "../src/core/state-manager";
 import { planSync } from "../src/core/sync-plan";
@@ -19,6 +20,7 @@ import { materializeRepo } from "../src/utils/git";
 import { githubFolderUrl } from "../src/ui/view-model";
 import { forgetLockedSkills, readSkillLock } from "../src/skills/skill-discovery";
 import { InstalledComponent } from "../src/core/types";
+import { downloadExtensionVsix, extensionUpdateAvailable, fetchLatestExtensionRelease, isExtensionAssetUrl, parseLatestRelease } from "../src/core/extension-updater";
 
 test("parses Windows frontmatter without dropping the description", () => {
   const parsed = parseFrontmatter("---\r\nname: adding-analytics\r\ndescription: Add PostHog analytics\r\n---\r\n");
@@ -283,6 +285,70 @@ test("reads a skill lock by repository and forgets removed skills", async () => 
   const after = JSON.parse(await readFile(lockFile, "utf8")) as { skills: Record<string, unknown> };
   assert.equal(after.skills["adding-analytics"], undefined);
   assert.ok(after.skills["find-skills"]);
+});
+
+test("reads a Skills Hub release and ignores a package from another place", async () => {
+  const asset = "https://github.com/Devisione/cursor-skills-hub/releases/download/v0.1.20/cursor-skills-hub.vsix";
+  const release = parseLatestRelease({
+    tag_name: "v0.1.20",
+    assets: [{ name: "cursor-skills-hub.vsix", browser_download_url: asset }],
+  });
+  assert.equal(release.version, "0.1.20");
+  assert.equal(release.vsixUrl, asset);
+  assert.equal(extensionUpdateAvailable("0.1.19", release.version), true);
+  assert.equal(extensionUpdateAvailable("0.1.20", release.version), false);
+  assert.equal(extensionUpdateAvailable("0.2.0", release.version), false);
+  assert.equal(isExtensionAssetUrl("https://github.com/Devisione/cursor-skills-hub/releases/latest/download/cursor-skills-hub.vsix"), false);
+  assert.equal(isExtensionAssetUrl("https://user:token@github.com/Devisione/cursor-skills-hub/releases/download/v0.1.20/cursor-skills-hub.vsix"), false);
+  assert.throws(() => parseLatestRelease({
+    tag_name: "v0.1.20",
+    assets: [{ name: "cursor-skills-hub.vsix", browser_download_url: "https://evil.example/cursor-skills-hub.vsix" }],
+  }), /no extension package/);
+  const fetched = await fetchLatestExtensionRelease(async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ tag_name: "v0.2.0", assets: [{ name: "cursor-skills-hub.vsix", browser_download_url: "https://github.com/Devisione/cursor-skills-hub/releases/download/v0.2.0/cursor-skills-hub.vsix" }] }),
+  }));
+  assert.equal(fetched.version, "0.2.0");
+});
+
+test("downloads the extension package through the GitHub release host only", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "skills-hub-vsix-"));
+  const destination = path.join(root, "cursor-skills-hub.vsix");
+  const asset = "https://github.com/Devisione/cursor-skills-hub/releases/download/v0.1.20/cursor-skills-hub.vsix";
+  const cdn = "https://release-assets.githubusercontent.com/github-production-release-asset/1?name=cursor-skills-hub.vsix";
+  const zip = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00]);
+  const seen: string[] = [];
+  await downloadExtensionVsix(asset, destination, async (url) => {
+    seen.push(url);
+    if (url === asset) {
+      return {
+        status: 302,
+        headers: { get: (name) => name.toLowerCase() === "location" ? cdn : undefined },
+        body: Readable.from([]),
+      };
+    }
+    return {
+      status: 200,
+      headers: { get: () => undefined },
+      body: Readable.from([zip]),
+    };
+  });
+  assert.deepEqual(seen, [asset, cdn]);
+  assert.equal((await readFile(destination))[0], 0x50);
+  await assert.rejects(() => downloadExtensionVsix(asset, destination, async () => ({
+    status: 302,
+    headers: { get: (name) => name.toLowerCase() === "location" ? "https://evil.example/cursor-skills-hub.vsix" : undefined },
+    body: Readable.from([]),
+  })), /unexpected address/);
+  await assert.rejects(() => downloadExtensionVsix("https://evil.example/cursor-skills-hub.vsix", destination, async () => {
+    throw new Error("should not fetch");
+  }), /unexpected address/);
+  await assert.rejects(() => downloadExtensionVsix(asset, destination, async () => ({
+    status: 200,
+    headers: { get: () => undefined },
+    body: Readable.from([Buffer.from("not a package")]),
+  })), /not an extension package/);
 });
 
 function localSkill(id: string): InstalledComponent {

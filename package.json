@@ -2,7 +2,7 @@
   "name": "cursor-skills-hub",
   "displayName": "Cursor Skills Hub",
   "description": "Install Cursor Agent Skills and Plugins once, sync them through a private GitHub repository, and update them from the editor.",
-  "version": "0.1.20",
+  "version": "0.1.21",
   "publisher": "skills-hub",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -67,6 +67,10 @@
       {
         "command": "skillsHub.checkUpdates",
         "title": "Skills Hub: Check for Updates"
+      },
+      {
+        "command": "skillsHub.updateExtension",
+        "title": "Skills Hub: Update Extension"
       },
       {
         "command": "skillsHub.sync",

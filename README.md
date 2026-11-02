@@ -40,6 +40,8 @@ curl -fsSL -o "%TEMP%\cursor-skills-hub.vsix" https://github.com/Devisione/curso
 
 Other versions are on [Releases](https://github.com/Devisione/cursor-skills-hub/releases). Reload the window when Cursor asks. Skills Hub then appears on the side bar.
 
+After that, Skills Hub checks GitHub releases and shows a notification when a newer version is out. Use Update on that notification, or the Update button in Settings.
+
 ## Where components go
 
 The extension does not change Cursor's application files. It writes into directories Cursor already scans:
