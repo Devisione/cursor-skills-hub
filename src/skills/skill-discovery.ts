@@ -7,6 +7,7 @@ import { checksumDirectory, copyTree, ensureDir, moveAside, pathExists, removeTr
 import { parseFrontmatter } from "../utils/frontmatter";
 import { errorMessage } from "../utils/errors";
 import { materializeRepo } from "../utils/git";
+import { installFolderName } from "./skill-installer";
 import { isSafeComponentName } from "../utils/security";
 
 export interface SkillLockEntry {
@@ -217,7 +218,7 @@ export async function updateLockedBundle(input: {
       }
       const relative = path.relative(materialized.directory, directory).split(path.sep).join("/");
       const linked = [...lock.entries()].filter(([, entry]) => entry.source === input.sourceName && sameSkillPath(entry.skillPath, relative));
-      const folders = linked.length ? linked.map(([folder]) => folder) : [name];
+      const folders = linked.length ? linked.map(([folder]) => folder) : [installFolderName(name, relative)];
       for (const folder of folders) {
         if (!isSafeComponentName(folder)) {
           continue;
@@ -345,7 +346,7 @@ export async function agentStoreSkillRoots(): Promise<string[]> {
 
 function sameSkillPath(skillPath: string | undefined, directory: string): boolean {
   const file = (skillPath || "").replace(/\\/g, "/").replace(/\/SKILL\.md$/i, "").replace(/^\//, "");
-  return file === directory || file.endsWith(`/${directory}`);
+  return file === directory;
 }
 
 function skillSourceRank(skillPath: string): number {

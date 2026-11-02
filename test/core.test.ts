@@ -22,6 +22,7 @@ import { agentStoreParent } from "../src/core/paths";
 import { materializeRepo } from "../src/utils/git";
 import { githubFolderUrl } from "../src/ui/view-model";
 import { forgetLockedSkills, readSkillLock } from "../src/skills/skill-discovery";
+import { installFolderName } from "../src/skills/skill-installer";
 import { InstalledComponent } from "../src/core/types";
 import { downloadExtensionVsix, extensionUpdateAvailable, fetchLatestExtensionRelease, isExtensionAssetUrl, parseLatestRelease } from "../src/core/extension-updater";
 
@@ -268,6 +269,14 @@ test("builds GitHub links for a repository and a skill folder", () => {
     "https://github.com/spencerpauly/awesome-cursor-skills/tree/main/resources/adding-analytics",
   );
   assert.equal(githubFolderUrl("https://example.com/skills"), "");
+});
+
+test("gives duplicate skill names their own install folders", () => {
+  assert.equal(installFolderName("seo-image-gen", "skills/seo-image-gen"), "seo-image-gen");
+  assert.equal(installFolderName("seo-image-gen", "extensions/banana/skills/seo-image-gen"), "seo-image-gen--banana");
+  assert.equal(installFolderName("seo-dataforseo", "skills/seo-dataforseo"), "seo-dataforseo");
+  assert.equal(installFolderName("seo-dataforseo", "extensions/dataforseo/skills/seo-dataforseo"), "seo-dataforseo--dataforseo");
+  assert.equal(installFolderName("demo", "cli/assets/skills/demo"), "demo--cli");
 });
 
 test("reads a skill lock by repository and forgets removed skills", async () => {

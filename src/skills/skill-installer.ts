@@ -4,7 +4,7 @@ import { installRoot, locationFor, WorkspaceHint } from "../core/paths";
 import { HubError } from "../utils/errors";
 import { checksumDirectory, copyTree, ensureDir, moveAside, pathExists, removeTree } from "../utils/filesystem";
 import { materializeRepo } from "../utils/git";
-import { assertSafeComponentName } from "../utils/security";
+import { assertSafeComponentName, isSafeComponentName } from "../utils/security";
 import { validateSkillDirectory } from "./skill-validator";
 
 export interface SkillInstallResult {
@@ -31,9 +31,10 @@ export async function installSkill(input: {
   cancel?: CancelFlag;
 }): Promise<SkillInstallResult> {
   assertSafeComponentName(input.component.name);
+  const folder = installFolderName(input.component.name, input.component.pathInRepo);
   const root = installRoot(input.scope, locationFor("skill", input.scope, input.skillLocation), input.workspace);
   await ensureDir(root);
-  const destination = path.join(root, input.component.name);
+  const destination = path.join(root, folder);
   const materialized = await materializeRepo({
     url: input.component.repositoryUrl,
     ref: input.ref || input.component.commitSha,
@@ -102,6 +103,30 @@ export async function installSkill(input: {
 
 export async function uninstallSkill(installPath: string, allowedRoot: string): Promise<void> {
   await removeTree(installPath, allowedRoot);
+}
+
+export function installFolderName(name: string, pathInRepo?: string): string {
+  const normalized = (pathInRepo || "").replace(/\\/g, "/").replace(/\/$/, "").replace(/\/SKILL\.md$/i, "");
+  if (normalized.includes("cli/assets/skills")) {
+    return fitFolder(`${name}--cli`, name);
+  }
+  const parts = normalized.split("/").filter(Boolean);
+  const directory = parts[parts.length - 1] ?? "";
+  if (parts.length <= 2 && (directory === name || directory === "")) {
+    return name;
+  }
+  const skillsAt = parts.lastIndexOf("skills");
+  const raw = skillsAt > 0 ? parts[skillsAt - 1] : parts[parts.length - 2] ?? "";
+  const suffix = raw.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").replace(/^\.+|\.+$/g, "");
+  if (!suffix || suffix === name || suffix === "skills") {
+    return name;
+  }
+  return fitFolder(`${name}--${suffix}`, name);
+}
+
+function fitFolder(folder: string, fallback: string): string {
+  const trimmed = folder.slice(0, 81).replace(/[.-]+$/g, "");
+  return isSafeComponentName(trimmed) ? trimmed : fallback;
 }
 
 function throwIfCancelled(cancel?: CancelFlag): void {

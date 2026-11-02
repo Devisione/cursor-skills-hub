@@ -26,9 +26,30 @@ export async function runGit(args: string[], options: { cwd?: string; token?: st
   const hooks = await ensureNoHooksDir();
   const prefix = ["-c", `core.hooksPath=${hooks}`, "-c", "core.autocrlf=false", "-c", "advice.detachedHead=false"];
   if (options.token) {
-    prefix.push("-c", `http.extraheader=AUTHORIZATION: bearer ${options.token}`);
+    // The linked account is the only credential. A second helper or Authorization header
+    // makes GitHub reject the request with "invalid credentials".
+    const helper = `!f() { echo username=x-access-token; echo password=${options.token}; }; f`;
+    prefix.push(
+      "-c", "credential.helper=",
+      "-c", `credential.helper=${helper}`,
+      "-c", "credential.https://github.com.helper=",
+      "-c", `credential.https://github.com.helper=${helper}`,
+    );
   }
   return runProcess("git", [...prefix, ...args], options.cwd, options.timeoutMs ?? 60_000, options.token);
+}
+
+function gitProcessEnv(token?: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    GIT_TERMINAL_PROMPT: "0",
+    GCM_INTERACTIVE: "Never",
+  };
+  if (token) {
+    delete env.GIT_ASKPASS;
+    delete env.SSH_ASKPASS;
+  }
+  return env;
 }
 
 function runProcess(command: string, args: string[], cwd: string | undefined, timeoutMs: number, token?: string): Promise<GitResult> {
@@ -37,11 +58,7 @@ function runProcess(command: string, args: string[], cwd: string | undefined, ti
       cwd,
       shell: false,
       windowsHide: true,
-      env: {
-        ...process.env,
-        GIT_TERMINAL_PROMPT: "0",
-        GCM_INTERACTIVE: "Never",
-      },
+      env: gitProcessEnv(token),
     });
     let stdout = "";
     let stderr = "";

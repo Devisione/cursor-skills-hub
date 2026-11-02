@@ -14,7 +14,7 @@ import { createConfigRepo } from "../github/repository-manager";
 import { indexMarketplace } from "../marketplaces/marketplace-manager";
 import { discoverInstalledPlugins } from "../plugins/plugin-discovery";
 import { agentGridSkillPath, discoverInstalledSkills, forgetLockedSkills, publishSkillToAgentGrid, recordSkillSource, updateLockedBundle } from "../skills/skill-discovery";
-import { uninstallSkill } from "../skills/skill-installer";
+import { installFolderName, uninstallSkill } from "../skills/skill-installer";
 import { CacheManager } from "../storage/cache-manager";
 import { HubError, errorCode, errorMessage } from "../utils/errors";
 import { marketplaceIdFor, parseGitUrl, repoSlug } from "../utils/github-url";
@@ -1098,7 +1098,7 @@ export class Hub {
     component.bundleUrl = component.repositoryUrl;
     const removed: string[] = [];
     if (component.scope === "user") {
-      const gridPath = await agentGridSkillPath(catalogFolderName(component.name, component.pathInRepo));
+      const gridPath = await agentGridSkillPath(installFolderName(component.name, component.pathInRepo));
       if (gridPath && !pathsEqual(gridPath, component.installPath)) {
         const ready = await pathExists(path.join(component.installPath, "SKILL.md")) || await pathExists(path.join(component.installPath, "SKILL.md.off"));
         if (ready) {
@@ -1232,14 +1232,6 @@ function readSettings(): SettingsState {
     autoApproveTrustedInstalls: config.get("autoApproveTrustedInstalls", false),
     githubRepository: config.get("githubRepository", ""),
   };
-}
-
-function catalogFolderName(name: string, pathInRepo?: string): string {
-  const normalized = (pathInRepo || "").replace(/\\/g, "/");
-  if (normalized.includes("cli/assets/skills")) {
-    return `${name}--cli`;
-  }
-  return name;
 }
 
 function skillPathRank(skillPath: string): number {
