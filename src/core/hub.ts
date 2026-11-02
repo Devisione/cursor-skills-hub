@@ -299,7 +299,7 @@ export class Hub {
     const chosenScope = scope ?? snapshot.settings.installationScope;
     const result = await this.run(`Installing ${component.name}`, async (cancel) => {
       const token = await this.token();
-      return performInstall({
+      const installed = await performInstall({
         component,
         scope: chosenScope,
         skillLocation: snapshot.settings.defaultSkillLocation,
@@ -311,9 +311,10 @@ export class Hub {
         ref: version,
         cancel,
       });
+      const placed = await this.placeRepositorySkill(installed);
+      await this.rememberInstalled(placed.component, placed.removedPaths, true);
+      return placed.component;
     });
-    const placed = await this.placeRepositorySkill(result);
-    await this.rememberInstalled(placed.component, placed.removedPaths, true);
     this.logger.info("install", `${result.name} installed at ${result.installPath}`);
     return {
       installPath: result.installPath,
