@@ -6,14 +6,32 @@ interface BridgeFile {
   token: string;
 }
 
+interface RpcMessage {
+  id?: number | string;
+  method?: string;
+  params?: {
+    name?: string;
+    arguments?: Record<string, unknown>;
+    protocolVersion?: string;
+  };
+}
+
+const instructions = [
+  "Before doing the user's task, call search_skills with a short description of that task.",
+  "Search only marketplaces already connected in Skills Hub.",
+  "If a result matches and installed is false, call install_skill with that id, then read SKILL.md inside installPath and follow it.",
+  "If installed is true, read SKILL.md at installPath and follow it without installing again.",
+  "If nothing matches, do the task without installing a skill.",
+].join(" ");
+
 const tools = [
   {
     name: "search_skills",
-    description: "Search skills in marketplaces connected to Cursor Skills Hub. This does not install anything.",
+    description: "Search skills in marketplaces connected to Cursor Skills Hub. Call this before doing the user's task. This does not install anything. Each result says whether that skill is already installed and, when it is, includes installPath.",
     inputSchema: {
       type: "object",
       properties: {
-        query: { type: "string", description: "Task or skill description to search for." },
+        query: { type: "string", description: "The user's task, in a few words." },
         category: { type: "string" },
         limit: { type: "number" },
       },
@@ -31,7 +49,7 @@ const tools = [
   },
   {
     name: "install_skill",
-    description: "Install one skill from a connected marketplace into a directory Cursor scans. Refuses arbitrary repositories.",
+    description: "Install one skill returned by search_skills into a directory Cursor scans. Refuses an id that is not in a connected marketplace. After it returns, read SKILL.md inside installPath and follow it.",
     inputSchema: {
       type: "object",
       properties: {
@@ -44,7 +62,7 @@ const tools = [
   },
   {
     name: "list_installed_skills",
-    description: "List skills currently installed on this device.",
+    description: "List skills currently installed on this device, including the directory of each skill.",
     inputSchema: { type: "object", properties: {} },
   },
   {
@@ -54,39 +72,100 @@ const tools = [
   },
 ];
 
-const pending = { current: Buffer.alloc(0) };
+type Frame = "line" | "lsp";
 
-process.stdin.on("data", (chunk: Buffer) => {
-  pending.current = Buffer.concat([pending.current, chunk]);
-  while (true) {
-    const headerEnd = pending.current.indexOf("\r\n\r\n");
-    const newlineEnd = pending.current.indexOf("\n\n");
-    const splitAt = headerEnd >= 0 ? headerEnd : newlineEnd;
-    const separator = headerEnd >= 0 ? 4 : 2;
-    if (splitAt < 0) {
-      return;
+const pending = { current: Buffer.alloc(0) };
+let frame: Frame | undefined;
+
+if (require.main === module) {
+  process.stdin.on("data", (chunk: Buffer) => {
+    pending.current = Buffer.concat([pending.current, chunk]);
+    drain();
+  });
+  process.stdin.on("end", () => {
+    process.exit(0);
+  });
+}
+
+function drain(): void {
+  while (pending.current.length) {
+    if (!frame) {
+      const detected = detectFrame(pending.current);
+      if (!detected) {
+        return;
+      }
+      frame = detected;
+      const skip = leadingWhitespace(pending.current);
+      if (skip) {
+        pending.current = pending.current.slice(skip);
+      }
     }
-    const header = pending.current.slice(0, splitAt).toString("utf8");
-    const match = /Content-Length:\s*(\d+)/i.exec(header);
-    if (!match) {
-      pending.current = pending.current.slice(splitAt + separator);
+    if (frame === "line") {
+      const newline = pending.current.indexOf(0x0a);
+      if (newline < 0) {
+        return;
+      }
+      const line = pending.current.slice(0, newline).toString("utf8").replace(/\r$/, "");
+      pending.current = pending.current.slice(newline + 1);
+      if (line.trim()) {
+        void handle(line);
+      }
       continue;
     }
-    const length = Number(match[1]);
-    const start = splitAt + separator;
-    if (pending.current.length < start + length) {
+    const body = readContentLength();
+    if (body === undefined) {
       return;
     }
-    const body = pending.current.slice(start, start + length).toString("utf8");
-    pending.current = pending.current.slice(start + length);
-    void handle(body);
+    if (body) {
+      void handle(body);
+    }
   }
-});
+}
+
+function detectFrame(buffer: Buffer): Frame | undefined {
+  const start = leadingWhitespace(buffer);
+  if (start >= buffer.length) {
+    return undefined;
+  }
+  return buffer[start] === 0x7b ? "line" : "lsp";
+}
+
+function leadingWhitespace(buffer: Buffer): number {
+  let index = 0;
+  while (index < buffer.length && (buffer[index] === 0x20 || buffer[index] === 0x09 || buffer[index] === 0x0d || buffer[index] === 0x0a)) {
+    index += 1;
+  }
+  return index;
+}
+
+function readContentLength(): string | undefined {
+  const headerEnd = pending.current.indexOf("\r\n\r\n");
+  const newlineEnd = pending.current.indexOf("\n\n");
+  const splitAt = headerEnd >= 0 ? headerEnd : newlineEnd;
+  const separator = headerEnd >= 0 ? 4 : 2;
+  if (splitAt < 0) {
+    return undefined;
+  }
+  const header = pending.current.slice(0, splitAt).toString("utf8");
+  const match = /Content-Length:\s*(\d+)/i.exec(header);
+  if (!match) {
+    pending.current = pending.current.slice(splitAt + separator);
+    return "";
+  }
+  const length = Number(match[1]);
+  const start = splitAt + separator;
+  if (pending.current.length < start + length) {
+    return undefined;
+  }
+  const body = pending.current.slice(start, start + length).toString("utf8");
+  pending.current = pending.current.slice(start + length);
+  return body;
+}
 
 async function handle(body: string): Promise<void> {
-  let message: { id?: number | string; method?: string; params?: { name?: string; arguments?: Record<string, unknown> } };
+  let message: RpcMessage;
   try {
-    message = JSON.parse(body) as typeof message;
+    message = JSON.parse(body) as RpcMessage;
   } catch {
     return;
   }
@@ -95,10 +174,12 @@ async function handle(body: string): Promise<void> {
   }
   try {
     if (message.method === "initialize") {
+      const requested = message.params?.protocolVersion;
       reply(message.id, {
-        protocolVersion: "2024-11-05",
-        capabilities: { tools: {} },
+        protocolVersion: typeof requested === "string" && requested ? requested : "2024-11-05",
+        capabilities: { tools: { listChanged: false } },
         serverInfo: { name: "skills-hub", version: "0.1.0" },
+        instructions,
       });
       return;
     }
@@ -174,6 +255,9 @@ function replyError(id: number | string, code: number, message: string): void {
 
 function send(message: unknown): void {
   const json = JSON.stringify(message);
-  const packet = `Content-Length: ${Buffer.byteLength(json)}\r\n\r\n${json}`;
-  process.stdout.write(packet);
+  if (frame === "lsp") {
+    process.stdout.write(`Content-Length: ${Buffer.byteLength(json)}\r\n\r\n${json}`);
+    return;
+  }
+  process.stdout.write(`${json}\n`);
 }

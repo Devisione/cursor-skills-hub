@@ -318,7 +318,7 @@ export class Hub {
     return {
       installPath: result.installPath,
       version: result.version || result.commitSha || "",
-      note: "Cursor scans this directory. Start a new agent chat if the current conversation does not list the skill yet.",
+      note: "Read SKILL.md inside installPath and follow it for this task. A new agent chat lists the skill automatically.",
     };
   }
 
@@ -812,13 +812,16 @@ export class Hub {
   }
 
   search(query: string, category?: string, limit = 10) {
+    const snapshot = this.state.snapshot();
     const safeLimit = Math.min(Math.max(limit, 1), 50);
-    return searchCatalog(this.catalog, this.state.snapshot().installed, query, category, safeLimit).map((item) => ({
+    const installed = new Map(snapshot.installed.map((entry) => [entry.id, entry]));
+    return searchCatalog(this.catalog, snapshot.installed, query, category, safeLimit).map((item) => ({
       id: item.id,
       name: item.name,
       description: item.description,
       source: item.repositoryUrl,
       installed: item.installed,
+      installPath: installed.get(item.id)?.installPath,
       version: item.version || item.commitSha,
     }));
   }

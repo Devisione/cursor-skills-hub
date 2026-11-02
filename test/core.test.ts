@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, writeFile } from "fs/promises";
+import { spawn } from "child_process";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "fs/promises";
 import os from "os";
 import path from "path";
 import { Readable } from "stream";
 import { test } from "node:test";
+import { startBridge } from "../src/mcp/bridge";
+import { Logger } from "../src/utils/logger";
 import { freshState } from "../src/core/state-manager";
 import { planSync } from "../src/core/sync-plan";
 import { buildRemoteFiles, parseRemoteFiles } from "../src/github/config-sync";
@@ -350,6 +353,92 @@ test("downloads the extension package through the GitHub release host only", asy
     body: Readable.from([Buffer.from("not a package")]),
   })), /not an extension package/);
 });
+
+test("mcp server tells the agent to search skills before a task", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "skills-hub-mcp-"));
+  const bridgeFile = path.join(root, "bridge.json");
+  const bridge = await startBridge(bridgeFile, new Logger({ append() { return undefined; } }), async (name, args) => {
+    assert.equal(name, "search_skills");
+    assert.equal(args.query, "review a pull request");
+    return [{ id: "skill_review", name: "review", installed: false }];
+  });
+  const child = spawn(process.execPath, [path.join(__dirname, "../src/mcp/server.js")], {
+    env: { ...process.env, SKILLS_HUB_BRIDGE: bridgeFile },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  const incoming = mcpLines(child.stdout);
+  const send = (message: unknown) => {
+    child.stdin.write(`${JSON.stringify(message)}\n`);
+  };
+  try {
+    send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {} } });
+    const initialized = await incoming.next();
+    assert.equal(initialized.id, 1);
+    const initResult = initialized.result as { protocolVersion?: string; instructions?: string };
+    assert.equal(initResult.protocolVersion, "2025-06-18");
+    assert.match(initResult.instructions ?? "", /search_skills/);
+    assert.match(initResult.instructions ?? "", /Before doing the user's task/);
+
+    send({ jsonrpc: "2.0", method: "notifications/initialized" });
+    send({ jsonrpc: "2.0", id: 2, method: "tools/list" });
+    const listed = await incoming.next();
+    const listedTools = (listed.result as { tools?: Array<{ name: string; description: string }> }).tools ?? [];
+    const search = listedTools.find((tool) => tool.name === "search_skills");
+    assert.ok(search);
+    assert.match(search.description, /before doing the user's task/i);
+
+    send({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "search_skills", arguments: { query: "review a pull request" } } });
+    const called = await incoming.next();
+    const body = called.result as { isError?: boolean; content?: Array<{ text: string }> };
+    assert.equal(body.isError, false);
+    assert.match(body.content?.[0]?.text ?? "", /skill_review/);
+  } finally {
+    child.kill();
+    bridge.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+function mcpLines(stream: NodeJS.ReadableStream): { next(): Promise<{ id?: number; result?: unknown }> } {
+  let buffer = "";
+  const queue: Array<{ id?: number; result?: unknown }> = [];
+  const waiters: Array<(message: { id?: number; result?: unknown }) => void> = [];
+  stream.setEncoding("utf8");
+  stream.on("data", (chunk: string) => {
+    buffer += chunk;
+    let index = buffer.indexOf("\n");
+    while (index >= 0) {
+      const line = buffer.slice(0, index).trim();
+      buffer = buffer.slice(index + 1);
+      index = buffer.indexOf("\n");
+      if (!line) {
+        continue;
+      }
+      const message = JSON.parse(line) as { id?: number; result?: unknown };
+      const waiter = waiters.shift();
+      if (waiter) {
+        waiter(message);
+      } else {
+        queue.push(message);
+      }
+    }
+  });
+  return {
+    next() {
+      const queued = queue.shift();
+      if (queued) {
+        return Promise.resolve(queued);
+      }
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("timed out waiting for MCP response")), 5000);
+        waiters.push((message) => {
+          clearTimeout(timer);
+          resolve(message);
+        });
+      });
+    },
+  };
+}
 
 function localSkill(id: string): InstalledComponent {
   return {

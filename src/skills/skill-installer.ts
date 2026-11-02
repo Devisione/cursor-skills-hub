@@ -89,7 +89,7 @@ export async function installSkill(input: {
       location: locationFor("skill", input.scope, input.skillLocation),
       scope: input.scope,
       discovery: "scanned-directory",
-      note: "Cursor scans this skill directory. Start a new agent chat if the current conversation does not see it yet.",
+      note: "Read SKILL.md inside the install directory and follow it for this task. A new agent chat lists the skill automatically.",
       backupPath,
     };
   } finally {

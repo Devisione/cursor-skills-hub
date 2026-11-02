@@ -45,7 +45,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   registerCommands(context, hub);
   const bridge = await startBridge(paths.bridge, logger, (name, args) => callTool(hub, name, args));
   context.subscriptions.push(bridge);
-  registerMcp(context, paths.bridge);
+  registerMcp(context, paths.bridge, logger);
   context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((event) => {
     if (event.affectsConfiguration("skillsHub") && !hub.isWritingConfiguration()) {
       void hub.importFromConfiguration();
