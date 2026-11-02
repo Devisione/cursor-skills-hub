@@ -29,9 +29,10 @@ export async function installSkill(input: {
   token?: string;
   backup?: (currentPath: string) => Promise<string | undefined>;
   cancel?: CancelFlag;
+  siblingPaths?: string[];
 }): Promise<SkillInstallResult> {
   assertSafeComponentName(input.component.name);
-  const folder = installFolderName(input.component.name, input.component.pathInRepo);
+  const folder = installFolderName(input.component.name, input.component.pathInRepo, input.siblingPaths);
   const root = installRoot(input.scope, locationFor("skill", input.scope, input.skillLocation), input.workspace);
   await ensureDir(root);
   const destination = path.join(root, folder);
@@ -105,23 +106,87 @@ export async function uninstallSkill(installPath: string, allowedRoot: string): 
   await removeTree(installPath, allowedRoot);
 }
 
-export function installFolderName(name: string, pathInRepo?: string): string {
-  const normalized = (pathInRepo || "").replace(/\\/g, "/").replace(/\/$/, "").replace(/\/SKILL\.md$/i, "");
-  if (normalized.includes("cli/assets/skills")) {
+export function installFolderName(name: string, pathInRepo?: string, siblingPaths: string[] = []): string {
+  const own = skillDirectory(pathInRepo);
+  const paths = [...new Set([own, ...siblingPaths.map(skillDirectory)])];
+  const used = new Set<string>();
+  const folders = new Map<string, string>();
+  const ordered = [...paths].sort((left, right) => folderPreference(name, left) - folderPreference(name, right) || left.localeCompare(right));
+  for (const directory of ordered) {
+    let folder = folderCandidate(name, directory);
+    if (used.has(folder)) {
+      folder = folderFromPath(name, directory, used);
+    }
+    folders.set(directory, folder);
+    used.add(folder);
+  }
+  return folders.get(own) ?? name;
+}
+
+function skillDirectory(pathInRepo?: string): string {
+  return (pathInRepo || "").replace(/\\/g, "/").replace(/\/$/, "").replace(/\/SKILL\.md$/i, "");
+}
+
+function folderPreference(name: string, directory: string): number {
+  if (directory === `skills/${name}` || directory === name) {
+    return 0;
+  }
+  if (directory === "") {
+    return 1;
+  }
+  if (directory.startsWith("skills/")) {
+    return 2;
+  }
+  return 3;
+}
+
+function folderCandidate(name: string, directory: string): string {
+  if (directory.includes("cli/assets/skills")) {
     return fitFolder(`${name}--cli`, name);
   }
-  const parts = normalized.split("/").filter(Boolean);
-  const directory = parts[parts.length - 1] ?? "";
-  if (parts.length <= 2 && (directory === name || directory === "")) {
+  const parts = directory.split("/").filter(Boolean);
+  const leaf = parts[parts.length - 1] ?? "";
+  if (parts.length <= 2 && (leaf === name || leaf === "")) {
     return name;
   }
   const skillsAt = parts.lastIndexOf("skills");
   const raw = skillsAt > 0 ? parts[skillsAt - 1] : parts[parts.length - 2] ?? "";
-  const suffix = raw.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").replace(/^\.+|\.+$/g, "");
+  const suffix = folderSuffix(raw);
   if (!suffix || suffix === name || suffix === "skills") {
     return name;
   }
   return fitFolder(`${name}--${suffix}`, name);
+}
+
+function folderFromPath(name: string, directory: string, used: Set<string>): string {
+  if (!directory) {
+    const root = fitFolder(`${name}--root`, name);
+    if (!used.has(root)) {
+      return root;
+    }
+  }
+  const parts = directory.split("/").filter(Boolean);
+  const bits: string[] = [];
+  for (let index = 0; index < parts.length - 1; index += 1) {
+    const suffix = folderSuffix(parts[index] ?? "");
+    if (!suffix || suffix === name || suffix === "skills") {
+      continue;
+    }
+    bits.push(suffix);
+    const folder = fitFolder(`${name}--${bits.join("-")}`, "");
+    if (folder && !used.has(folder)) {
+      return folder;
+    }
+  }
+  let count = 2;
+  while (used.has(`${name}--${count}`)) {
+    count += 1;
+  }
+  return fitFolder(`${name}--${count}`, name);
+}
+
+function folderSuffix(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").replace(/^\.+|\.+$/g, "");
 }
 
 function fitFolder(folder: string, fallback: string): string {

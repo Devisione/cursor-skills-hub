@@ -277,6 +277,11 @@ test("gives duplicate skill names their own install folders", () => {
   assert.equal(installFolderName("seo-dataforseo", "skills/seo-dataforseo"), "seo-dataforseo");
   assert.equal(installFolderName("seo-dataforseo", "extensions/dataforseo/skills/seo-dataforseo"), "seo-dataforseo--dataforseo");
   assert.equal(installFolderName("demo", "cli/assets/skills/demo"), "demo--cli");
+  const copies = ["", "skills/avoid-ai-writing", "plugins/avoid-ai-writing/skills/avoid-ai-writing"];
+  assert.equal(installFolderName("avoid-ai-writing", "skills/avoid-ai-writing", copies), "avoid-ai-writing");
+  assert.equal(installFolderName("avoid-ai-writing", "", copies), "avoid-ai-writing--root");
+  assert.equal(installFolderName("avoid-ai-writing", "plugins/avoid-ai-writing/skills/avoid-ai-writing", copies), "avoid-ai-writing--plugins");
+  assert.equal(installFolderName("avoid-ai-writing", ""), "avoid-ai-writing");
 });
 
 test("reads a skill lock by repository and forgets removed skills", async () => {

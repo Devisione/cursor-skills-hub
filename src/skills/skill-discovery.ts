@@ -218,7 +218,10 @@ export async function updateLockedBundle(input: {
       }
       const relative = path.relative(materialized.directory, directory).split(path.sep).join("/");
       const linked = [...lock.entries()].filter(([, entry]) => entry.source === input.sourceName && sameSkillPath(entry.skillPath, relative));
-      const folders = linked.length ? linked.map(([folder]) => folder) : [installFolderName(name, relative)];
+      const siblings = directories
+        .map((item) => path.relative(materialized.directory, item).split(path.sep).join("/"))
+        .filter((item) => path.posix.basename(item) === name);
+      const folders = linked.length ? linked.map(([folder]) => folder) : [installFolderName(name, relative, siblings)];
       for (const folder of folders) {
         if (!isSafeComponentName(folder)) {
           continue;

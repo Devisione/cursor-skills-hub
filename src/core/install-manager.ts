@@ -17,6 +17,7 @@ export async function performInstall(input: {
   existing?: InstalledComponent;
   ref?: string;
   cancel?: CancelFlag;
+  siblingPaths?: string[];
 }): Promise<InstalledComponent> {
   const now = new Date().toISOString();
   const backup = async (currentPath: string) => {
@@ -35,6 +36,7 @@ export async function performInstall(input: {
       token: input.token,
       backup,
       cancel: input.cancel,
+      siblingPaths: input.siblingPaths,
     });
     return {
       id: input.component.id,
