@@ -4,6 +4,7 @@ import { installRoot, locationFor, WorkspaceHint } from "../core/paths";
 import { HubError } from "../utils/errors";
 import { checksumDirectory, copyTree, ensureDir, moveAside, pathExists, removeTree } from "../utils/filesystem";
 import { materializeRepo } from "../utils/git";
+import { repoSlug } from "../utils/github-url";
 import { assertSafeComponentName, isSafeComponentName } from "../utils/security";
 import { validateSkillDirectory } from "./skill-validator";
 
@@ -30,9 +31,10 @@ export async function installSkill(input: {
   backup?: (currentPath: string) => Promise<string | undefined>;
   cancel?: CancelFlag;
   siblingPaths?: string[];
+  folderName?: string;
 }): Promise<SkillInstallResult> {
   assertSafeComponentName(input.component.name);
-  const folder = installFolderName(input.component.name, input.component.pathInRepo, input.siblingPaths);
+  const folder = input.folderName || installFolderName(input.component.name, input.component.pathInRepo, input.siblingPaths);
   const root = installRoot(input.scope, locationFor("skill", input.scope, input.skillLocation), input.workspace);
   await ensureDir(root);
   const destination = path.join(root, folder);
@@ -121,6 +123,30 @@ export function installFolderName(name: string, pathInRepo?: string, siblingPath
     used.add(folder);
   }
   return folders.get(own) ?? name;
+}
+
+export function separateMarketplaceFolder(folder: string, repositoryUrl: string | undefined, reserved: string[]): string {
+  const taken = new Set(reserved);
+  if (!taken.has(folder)) {
+    return folder;
+  }
+  const slug = repositoryUrl ? repoSlug(repositoryUrl) : "other";
+  const repo = folderSuffix(slug.split("/").pop() || slug);
+  const ownerRepo = folderSuffix(slug);
+  for (const suffix of [repo, ownerRepo]) {
+    if (!suffix) {
+      continue;
+    }
+    const next = fitFolder(`${folder}--${suffix}`, "");
+    if (next && !taken.has(next)) {
+      return next;
+    }
+  }
+  let count = 2;
+  while (taken.has(`${folder}--${count}`)) {
+    count += 1;
+  }
+  return fitFolder(`${folder}--${count}`, folder);
 }
 
 function skillDirectory(pathInRepo?: string): string {

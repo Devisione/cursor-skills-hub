@@ -14,7 +14,7 @@ import { createConfigRepo } from "../github/repository-manager";
 import { indexMarketplace } from "../marketplaces/marketplace-manager";
 import { discoverInstalledPlugins } from "../plugins/plugin-discovery";
 import { agentGridSkillPath, discoverInstalledSkills, forgetLockedSkills, publishSkillToAgentGrid, recordSkillSource, updateLockedBundle } from "../skills/skill-discovery";
-import { installFolderName, uninstallSkill } from "../skills/skill-installer";
+import { installFolderName, separateMarketplaceFolder, uninstallSkill } from "../skills/skill-installer";
 import { CacheManager } from "../storage/cache-manager";
 import { HubError, errorCode, errorMessage } from "../utils/errors";
 import { marketplaceIdFor, parseGitUrl, repoSlug } from "../utils/github-url";
@@ -311,6 +311,7 @@ export class Hub {
         ref: version,
         cancel,
         siblingPaths: this.skillPaths(component),
+        folderName: this.installFolder(component),
       });
       const placed = await this.placeRepositorySkill(installed);
       await this.rememberInstalled(placed.component, placed.removedPaths, true);
@@ -571,6 +572,7 @@ export class Hub {
         ref: installed.latestCommit,
         cancel,
         siblingPaths: this.skillPaths(component),
+        folderName: this.installFolder(component),
       });
       if (!(await pathExists(updated.installPath))) {
         throw new HubError("invalid-skill", "The update did not leave a readable install directory.");
@@ -997,6 +999,7 @@ export class Hub {
             ref: remoteItem.commitSha,
             cancel,
             siblingPaths: this.skillPaths(component),
+            folderName: this.installFolder(component),
           });
           installed.pinned = remoteItem.pinned;
           installed.pinCommit = remoteItem.pinCommit;
@@ -1091,6 +1094,17 @@ export class Hub {
     });
   }
 
+  private installFolder(component: { type: string; name: string; pathInRepo?: string; repositoryUrl?: string }): string {
+    const base = installFolderName(component.name, component.pathInRepo, this.skillPaths(component));
+    return separateMarketplaceFolder(base, component.repositoryUrl, this.reservedFolders(component.repositoryUrl));
+  }
+
+  private reservedFolders(repositoryUrl?: string): string[] {
+    return this.state.snapshot().installed
+      .filter((item) => item.type === "skill" && !!item.repositoryUrl && item.repositoryUrl !== repositoryUrl)
+      .map((item) => path.basename(item.installPath));
+  }
+
   private skillPaths(component: { type: string; name: string; repositoryUrl?: string }): string[] {
     if (component.type !== "skill") {
       return [];
@@ -1110,7 +1124,7 @@ export class Hub {
     component.bundleUrl = component.repositoryUrl;
     const removed: string[] = [];
     if (component.scope === "user") {
-      const gridPath = await agentGridSkillPath(installFolderName(component.name, component.pathInRepo, this.skillPaths(component)));
+      const gridPath = await agentGridSkillPath(this.installFolder(component));
       if (gridPath && !pathsEqual(gridPath, component.installPath)) {
         const ready = await pathExists(path.join(component.installPath, "SKILL.md")) || await pathExists(path.join(component.installPath, "SKILL.md.off"));
         if (ready) {

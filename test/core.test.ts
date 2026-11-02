@@ -22,7 +22,7 @@ import { agentStoreParent } from "../src/core/paths";
 import { materializeRepo } from "../src/utils/git";
 import { githubFolderUrl } from "../src/ui/view-model";
 import { forgetLockedSkills, readSkillLock } from "../src/skills/skill-discovery";
-import { installFolderName } from "../src/skills/skill-installer";
+import { installFolderName, separateMarketplaceFolder } from "../src/skills/skill-installer";
 import { InstalledComponent } from "../src/core/types";
 import { downloadExtensionVsix, extensionUpdateAvailable, fetchLatestExtensionRelease, isExtensionAssetUrl, parseLatestRelease } from "../src/core/extension-updater";
 
@@ -282,6 +282,15 @@ test("gives duplicate skill names their own install folders", () => {
   assert.equal(installFolderName("avoid-ai-writing", "", copies), "avoid-ai-writing--root");
   assert.equal(installFolderName("avoid-ai-writing", "plugins/avoid-ai-writing/skills/avoid-ai-writing", copies), "avoid-ai-writing--plugins");
   assert.equal(installFolderName("avoid-ai-writing", ""), "avoid-ai-writing");
+  assert.equal(separateMarketplaceFolder("seo-audit", "https://github.com/AgriciDaniel/claude-seo", []), "seo-audit");
+  assert.equal(
+    separateMarketplaceFolder("seo-audit", "https://github.com/coreyhaines31/marketingskills", ["seo-audit"]),
+    "seo-audit--marketingskills",
+  );
+  assert.equal(
+    separateMarketplaceFolder("seo-audit", "https://github.com/AgriciDaniel/claude-seo", ["seo-audit", "seo-audit--marketingskills"]),
+    "seo-audit--claude-seo",
+  );
 });
 
 test("reads a skill lock by repository and forgets removed skills", async () => {

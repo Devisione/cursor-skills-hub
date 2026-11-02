@@ -18,6 +18,7 @@ export async function performInstall(input: {
   ref?: string;
   cancel?: CancelFlag;
   siblingPaths?: string[];
+  folderName?: string;
 }): Promise<InstalledComponent> {
   const now = new Date().toISOString();
   const backup = async (currentPath: string) => {
@@ -37,6 +38,7 @@ export async function performInstall(input: {
       backup,
       cancel: input.cancel,
       siblingPaths: input.siblingPaths,
+      folderName: input.folderName,
     });
     return {
       id: input.component.id,
