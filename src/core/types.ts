@@ -111,6 +111,8 @@ export interface SettingsState {
 export interface SyncState {
   lastRemoteSha?: string;
   lastSyncedAt?: string;
+  lastAttemptedSha?: string;
+  declinedSha?: string;
   dirty: boolean;
   status: SyncStatus;
   lastError?: string;

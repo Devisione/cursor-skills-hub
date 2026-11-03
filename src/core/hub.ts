@@ -4,7 +4,7 @@ import { BackupManager } from "./backup-manager";
 import { performInstall, performUninstall, assertKnownSource } from "./install-manager";
 import { reconcileInstalled, statusFromFlags } from "./reconcile";
 import { StateManager } from "./state-manager";
-import { planSync, describePlan } from "./sync-plan";
+import { planSync, describePlan, nextSyncDelay, remoteSnapshotHandled, sameCommit } from "./sync-plan";
 import { pushRemote, readRemote } from "./sync-manager";
 import { includedInSync } from "../github/config-sync";
 import { CatalogComponent, InstallScope, InstalledComponent, SettingsState } from "./types";
@@ -42,6 +42,8 @@ export class Hub {
   private writingConfig = false;
   private operation?: vscode.CancellationTokenSource;
   private syncTimer?: ReturnType<typeof setTimeout>;
+  private syncTask?: Promise<void>;
+  private lastAutomaticSyncAt = 0;
   private extensionStatus: ExtensionReleaseStatus;
 
   constructor(
@@ -716,7 +718,20 @@ export class Hub {
     this.scheduleSync();
   }
 
-  async sync(): Promise<void> {
+  async sync(automatic = false): Promise<void> {
+    if (this.syncTask) {
+      return this.syncTask;
+    }
+    const task = this.performSync(automatic).finally(() => {
+      if (this.syncTask === task) {
+        this.syncTask = undefined;
+      }
+    });
+    this.syncTask = task;
+    return task;
+  }
+
+  private async performSync(automatic: boolean): Promise<void> {
     const remote = await this.loadRemote();
     const plan = this.currentPlan(remote.snapshot, remote.sha);
     if (plan.action === "push") {
@@ -724,10 +739,14 @@ export class Hub {
       return;
     }
     if (plan.action === "pull") {
+      if (automatic && remoteSnapshotHandled(this.state.snapshot().sync, remote.sha)) {
+        return;
+      }
       const confirmed = await this.confirm("Apply the GitHub configuration on this device?", plan.reason, "Apply");
       if (!confirmed) {
         await this.state.update((state) => {
           state.sync.status = "remote-changes";
+          state.sync.declinedSha = remote.sha || state.sync.declinedSha;
         });
         this.emit();
         return;
@@ -745,7 +764,9 @@ export class Hub {
       if (policy === "keep-local") {
         await this.resolveConflict("local");
       } else if (policy === "keep-remote") {
-        await this.resolveConflict("remote");
+        if (!(automatic && remoteSnapshotHandled(this.state.snapshot().sync, remote.sha))) {
+          await this.resolveConflict("remote");
+        }
       }
       this.emit();
       return;
@@ -754,6 +775,9 @@ export class Hub {
       state.sync.status = "synchronized";
       state.sync.lastRemoteSha = remote.sha || state.sync.lastRemoteSha;
       state.sync.lastSyncedAt = new Date().toISOString();
+      state.sync.lastAttemptedSha = undefined;
+      state.sync.declinedSha = undefined;
+      state.sync.lastError = undefined;
     });
     this.emit();
     this.scheduleSync();
@@ -909,7 +933,8 @@ export class Hub {
       }
     }
     if (state.settings.githubRepository && state.settings.syncFrequency !== "off" && this.due(state.sync.lastSyncedAt, state.settings.syncFrequency)) {
-      await this.sync().catch((error) => this.logger.error("sync", errorMessage(error)));
+      await this.sync(true).catch((error) => this.logger.error("sync", errorMessage(error)));
+      this.lastAutomaticSyncAt = Date.now();
     }
   }
 
@@ -924,13 +949,21 @@ export class Hub {
       return;
     }
     const interval = frequency === "hourly" ? HOUR : DAY;
-    const last = state.sync.lastSyncedAt ? new Date(state.sync.lastSyncedAt).getTime() : 0;
-    const wait = last ? Math.max(1000, last + interval - Date.now()) : 1000;
+    const parsed = state.sync.lastSyncedAt ? new Date(state.sync.lastSyncedAt).getTime() : undefined;
+    const wait = nextSyncDelay({
+      now: Date.now(),
+      interval,
+      lastSyncedAt: parsed,
+      lastAttemptAt: this.lastAutomaticSyncAt || undefined,
+    });
     this.syncTimer = setTimeout(() => {
       this.syncTimer = undefined;
-      void this.sync()
+      void this.sync(true)
         .catch((error) => this.logger.error("sync", errorMessage(error)))
-        .finally(() => this.scheduleSync());
+        .finally(() => {
+          this.lastAutomaticSyncAt = Date.now();
+          this.scheduleSync();
+        });
     }, wait);
   }
 
@@ -964,64 +997,100 @@ export class Hub {
       state.settings = { ...state.settings, ...snapshotRemote.settings, githubRepository: state.settings.githubRepository };
       state.sync.status = "remote-changes";
       state.sync.lastError = undefined;
+      if (sha) {
+        state.sync.lastAttemptedSha = sha;
+      }
     });
     await this.exportToConfiguration();
     await this.refreshMarketplace();
     let failed = 0;
-    for (const remoteItem of snapshotRemote.installed) {
+    let cancelled = false;
+    const pending = snapshotRemote.installed.filter((remoteItem) => {
       const current = this.state.snapshot();
       const hiddenMarkets = new Set(current.marketplaces.filter((item) => item.excludeFromSync).map((item) => item.id));
       const localItem = current.installed.find((item) => item.id === remoteItem.id);
       if (localItem?.excludeFromSync || current.syncExcludedIds?.includes(remoteItem.id) || hiddenMarkets.has(remoteItem.marketplaceId || "") || hiddenMarkets.has(localItem?.marketplaceId || "")) {
-        continue;
+        return false;
       }
-      const exists = localItem && localItem.commitSha === remoteItem.commitSha && localItem.status !== "error";
-      if (exists) {
-        continue;
+      if (localItem && sameCommit(localItem.commitSha, remoteItem.commitSha) && localItem.status !== "error") {
+        return false;
       }
-      const component = this.catalog.find((item) => item.id === remoteItem.id);
-      if (!component) {
+      if (!this.catalog.find((item) => item.id === remoteItem.id)) {
         failed += 1;
         this.logger.warn("sync", `No catalog entry for ${remoteItem.name}. Refresh the marketplace and sync again.`);
-        continue;
+        return false;
       }
+      return true;
+    });
+    if (pending.length > 0) {
+      const title = pending.length === 1 ? `Restoring ${pending[0].name}` : `Restoring ${pending.length} components`;
       try {
-        await this.run(`Restoring ${remoteItem.name}`, async (cancel) => {
-          const token = await this.token();
-          const installed = await performInstall({
-            component,
-            scope: remoteItem.scope,
-            skillLocation: remoteItem.location === "agents-skills" ? "agents-skills" : "cursor-skills",
-            workspace: this.workspace(),
-            token,
-            backups: this.backups,
-            backupEnabled: true,
-            ref: remoteItem.commitSha,
-            cancel,
-            siblingPaths: this.skillPaths(component),
-            folderName: this.installFolder(component),
-          });
-          installed.pinned = remoteItem.pinned;
-          installed.pinCommit = remoteItem.pinCommit;
-          installed.pinVersion = remoteItem.pinVersion;
-          installed.status = remoteItem.pinned ? "pinned" : "up-to-date";
-          await this.state.update((state) => {
-            state.installed = state.installed.filter((item) => item.id !== installed.id);
-            state.installed.push(installed);
-          });
+        await this.run(title, async (cancel) => {
+          for (const remoteItem of pending) {
+            if (cancel.isCancellationRequested) {
+              cancelled = true;
+              return;
+            }
+            const component = this.catalog.find((item) => item.id === remoteItem.id);
+            if (!component) {
+              failed += 1;
+              continue;
+            }
+            try {
+              const token = await this.token();
+              const installed = await performInstall({
+                component,
+                scope: remoteItem.scope,
+                skillLocation: remoteItem.location === "agents-skills" ? "agents-skills" : "cursor-skills",
+                workspace: this.workspace(),
+                token,
+                backups: this.backups,
+                backupEnabled: true,
+                ref: remoteItem.commitSha,
+                cancel,
+                siblingPaths: this.skillPaths(component),
+                folderName: this.installFolder(component),
+              });
+              installed.pinned = remoteItem.pinned;
+              installed.pinCommit = remoteItem.pinCommit;
+              installed.pinVersion = remoteItem.pinVersion;
+              installed.status = remoteItem.pinned ? "pinned" : "up-to-date";
+              await this.state.update((state) => {
+                state.installed = state.installed.filter((item) => item.id !== installed.id);
+                state.installed.push(installed);
+              });
+            } catch (error) {
+              if (errorCode(error) === "cancelled" || cancel.isCancellationRequested) {
+                cancelled = true;
+                return;
+              }
+              failed += 1;
+              this.logger.error("sync", `${remoteItem.name}: ${errorMessage(error)}`);
+            }
+          }
         });
       } catch (error) {
-        failed += 1;
-        this.logger.error("sync", `${remoteItem.name}: ${errorMessage(error)}`);
+        if (errorCode(error) === "cancelled") {
+          cancelled = true;
+        } else {
+          throw error;
+        }
       }
     }
     await this.state.update((state) => {
+      if (cancelled) {
+        state.sync.status = "error";
+        state.sync.lastError = "Restore was cancelled.";
+        return;
+      }
       if (failed === 0) {
         state.sync.lastRemoteSha = sha;
         state.sync.dirty = false;
         state.sync.status = "synchronized";
         state.sync.lastSyncedAt = new Date().toISOString();
         state.sync.lastError = undefined;
+        state.sync.lastAttemptedSha = undefined;
+        state.sync.declinedSha = undefined;
       } else {
         state.sync.status = "error";
         state.sync.lastError = `${failed} component${failed === 1 ? "" : "s"} could not be restored.`;

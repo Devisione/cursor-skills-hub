@@ -81,3 +81,41 @@ function empty(action: SyncPlan["action"], reason: string): SyncPlan {
 export function settingsEqual(left: SettingsState, right: SettingsState): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
+
+export function nextSyncDelay(input: {
+  now: number;
+  interval: number;
+  lastSyncedAt?: number;
+  lastAttemptAt?: number;
+}): number {
+  const anchor = Math.max(finiteTime(input.lastSyncedAt), finiteTime(input.lastAttemptAt));
+  if (!anchor) {
+    return input.interval;
+  }
+  return Math.max(1000, anchor + input.interval - input.now);
+}
+
+export function remoteSnapshotHandled(sync: { declinedSha?: string; lastAttemptedSha?: string }, sha?: string): boolean {
+  return !!sha && (sync.declinedSha === sha || sync.lastAttemptedSha === sha);
+}
+
+export function sameCommit(local?: string, remote?: string): boolean {
+  if (!remote) {
+    return true;
+  }
+  if (!local) {
+    return false;
+  }
+  const left = local.toLowerCase();
+  const right = remote.toLowerCase();
+  if (left === right) {
+    return true;
+  }
+  const shorter = left.length <= right.length ? left : right;
+  const longer = left.length <= right.length ? right : left;
+  return shorter.length >= 7 && longer.startsWith(shorter);
+}
+
+function finiteTime(value: number | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}

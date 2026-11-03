@@ -8,7 +8,7 @@ import { test } from "node:test";
 import { startBridge } from "../src/mcp/bridge";
 import { Logger } from "../src/utils/logger";
 import { freshState } from "../src/core/state-manager";
-import { planSync } from "../src/core/sync-plan";
+import { nextSyncDelay, planSync, remoteSnapshotHandled, sameCommit } from "../src/core/sync-plan";
 import { buildRemoteFiles, parseRemoteFiles } from "../src/github/config-sync";
 import { detectMarketplaceKind } from "../src/marketplaces/marketplace-adapter";
 import { indexCursorMarketplace } from "../src/marketplaces/cursor-adapter";
@@ -135,6 +135,32 @@ test("plans sync without overwriting a populated remote on first contact", () =>
     localManaged: [localSkill("skill_2")],
   });
   assert.equal(conflict.action, "conflict");
+});
+
+test("does not retry an overdue sync every second", () => {
+  const hour = 60 * 60 * 1000;
+  const now = Date.parse("2026-11-03T12:00:00.000Z");
+  assert.equal(nextSyncDelay({ now, interval: hour }), hour);
+  assert.equal(nextSyncDelay({
+    now,
+    interval: hour,
+    lastSyncedAt: now - 2 * hour,
+    lastAttemptAt: now,
+  }), hour);
+  assert.equal(nextSyncDelay({
+    now,
+    interval: hour,
+    lastSyncedAt: now - 30 * 60 * 1000,
+  }), 30 * 60 * 1000);
+});
+
+test("treats one GitHub snapshot as already handled after a decline or attempt", () => {
+  assert.equal(remoteSnapshotHandled({ declinedSha: "abc" }, "abc"), true);
+  assert.equal(remoteSnapshotHandled({ lastAttemptedSha: "abc" }, "abc"), true);
+  assert.equal(remoteSnapshotHandled({ lastAttemptedSha: "abc" }, "def"), false);
+  assert.equal(sameCommit("abcdef1234567890", "abcdef1"), true);
+  assert.equal(sameCommit("abcdef1234567890", "1234567890abcdef"), false);
+  assert.equal(sameCommit(undefined, undefined), true);
 });
 
 test("round-trips the remote configuration", () => {

@@ -104,6 +104,8 @@ function normalize(state: HubState): HubState {
       status: state.sync?.status ?? "disconnected",
       lastRemoteSha: state.sync?.lastRemoteSha,
       lastSyncedAt: state.sync?.lastSyncedAt,
+      lastAttemptedSha: state.sync?.lastAttemptedSha,
+      declinedSha: state.sync?.declinedSha,
       lastError: state.sync?.lastError,
     },
   };
