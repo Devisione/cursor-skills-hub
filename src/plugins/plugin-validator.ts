@@ -17,19 +17,21 @@ export interface PluginManifest {
 export async function validatePluginDirectory(root: string): Promise<PluginManifest> {
   const resolved = path.resolve(root);
   const cursorManifest = path.join(resolved, ".cursor-plugin", "plugin.json");
+  const claudeManifest = path.join(resolved, ".claude-plugin", "plugin.json");
   const agentManifest = path.join(resolved, "plugin.json");
   const cursor = await readManifest(cursorManifest, resolved);
-  const agent = cursor ? undefined : await readManifest(agentManifest, resolved);
-  const manifest = cursor ?? agent;
+  const claude = cursor ? undefined : await readManifest(claudeManifest, resolved);
+  const agent = cursor || claude ? undefined : await readManifest(agentManifest, resolved);
+  const manifest = cursor ?? claude ?? agent;
   if (!manifest) {
-    throw new HubError("invalid-plugin", "The directory has no .cursor-plugin/plugin.json or plugin.json manifest.");
+    throw new HubError("invalid-plugin", "The directory has no .cursor-plugin/plugin.json, .claude-plugin/plugin.json, or plugin.json manifest.");
   }
   if (!isSafeComponentName(manifest.name)) {
     throw new HubError("invalid-plugin", `Plugin name "${manifest.name}" must be a lowercase kebab-case identifier.`);
   }
   return {
     ...manifest,
-    format: cursor ? "cursor-plugin" : "agent-plugin",
+    format: cursor || claude ? "cursor-plugin" : "agent-plugin",
     root: resolved,
   };
 }

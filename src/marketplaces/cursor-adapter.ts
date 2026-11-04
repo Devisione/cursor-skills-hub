@@ -82,7 +82,7 @@ export function indexCursorMarketplace(input: {
     }
     const prefix = posix(plugin.source);
     const pluginRoot = prefix || ".";
-    const manifestPath = [".cursor-plugin/plugin.json", "plugin.json"]
+    const manifestPath = [".cursor-plugin/plugin.json", ".claude-plugin/plugin.json", "plugin.json"]
       .map((item) => (prefix ? `${prefix}/${item}` : item))
       .find((item) => input.files.has(item));
     const pluginJson = manifestPath ? readPlugin(input.files.get(manifestPath) ?? "") : undefined;
@@ -125,8 +125,8 @@ export function indexCursorMarketplace(input: {
 }
 
 export function syntheticPlugins(paths: string[]): MarketplacePluginEntry[] {
-  return paths.filter((item) => item.endsWith("/.cursor-plugin/plugin.json")).map((item) => {
-    const source = item.replace(/\/\.cursor-plugin\/plugin\.json$/, "");
+  return paths.filter((item) => item.endsWith("/.cursor-plugin/plugin.json") || item.endsWith("/.claude-plugin/plugin.json")).map((item) => {
+    const source = item.replace(/\/\.(cursor|claude)-plugin\/plugin\.json$/, "");
     const name = source.split("/").pop() || source;
     return { name, source };
   });
@@ -141,7 +141,8 @@ export function indexPluginRepository(input: {
   checkedAt: string;
   kind: "cursor-plugin" | "agent-plugin";
 }): CatalogComponent[] {
-  const manifestPath = input.kind === "cursor-plugin" ? ".cursor-plugin/plugin.json" : "plugin.json";
+  const manifestPath = [".cursor-plugin/plugin.json", ".claude-plugin/plugin.json", "plugin.json"].find((item) => input.files.has(item))
+    ?? (input.kind === "cursor-plugin" ? ".cursor-plugin/plugin.json" : "plugin.json");
   const pluginJson = readPlugin(input.files.get(manifestPath) ?? "");
   if (!pluginJson) {
     return [];
@@ -193,7 +194,7 @@ export function filesNeededForCursorMarketplace(paths: string[], plugins: Market
     for (const file of skillFilesUnder(paths, prefix)) {
       needed.add(file);
     }
-    for (const manifest of [".cursor-plugin/plugin.json", "plugin.json"]) {
+    for (const manifest of [".cursor-plugin/plugin.json", ".claude-plugin/plugin.json", "plugin.json"]) {
       const candidate = prefix ? `${prefix}/${manifest}` : manifest;
       if (paths.includes(candidate)) {
         needed.add(candidate);

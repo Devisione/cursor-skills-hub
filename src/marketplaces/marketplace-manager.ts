@@ -174,11 +174,9 @@ async function neededFiles(
   if (kind === "skills-catalog") {
     return skillFiles(paths);
   }
-  if (kind === "cursor-plugin") {
-    return unique([".cursor-plugin/plugin.json", ...skillFiles(paths)]);
-  }
-  if (kind === "agent-plugin") {
-    return unique(["plugin.json", ...skillFiles(paths)]);
+  if (kind === "cursor-plugin" || kind === "agent-plugin") {
+    const manifests = [".cursor-plugin/plugin.json", ".claude-plugin/plugin.json", "plugin.json"].filter((item) => paths.includes(item));
+    return unique([...manifests, ...skillFiles(paths)]);
   }
   const manifest = await read([".cursor-plugin/marketplace.json"]);
   const text = manifest.get(".cursor-plugin/marketplace.json");

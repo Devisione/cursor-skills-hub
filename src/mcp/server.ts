@@ -1,5 +1,6 @@
 import { readFileSync } from "fs";
 import { request } from "http";
+import { ROUTING_INSTRUCTIONS, SEARCH_SKILLS_DESCRIPTION } from "../routing/instruction";
 
 interface BridgeFile {
   port: number;
@@ -16,18 +17,12 @@ interface RpcMessage {
   };
 }
 
-const instructions = [
-  "Before doing the user's task, call search_skills with a short description of that task.",
-  "Search only marketplaces already connected in Skills Hub.",
-  "If a result matches and installed is false, call install_skill with that id, then read SKILL.md inside installPath and follow it.",
-  "If installed is true, read SKILL.md at installPath and follow it without installing again.",
-  "If nothing matches, do the task without installing a skill.",
-].join(" ");
+const instructions = ROUTING_INSTRUCTIONS;
 
 const tools = [
   {
     name: "search_skills",
-    description: "Search skills in marketplaces connected to Cursor Skills Hub. Call this before doing the user's task. This does not install anything. Each result says whether that skill is already installed and, when it is, includes installPath.",
+    description: SEARCH_SKILLS_DESCRIPTION,
     inputSchema: {
       type: "object",
       properties: {

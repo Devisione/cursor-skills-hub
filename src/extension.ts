@@ -6,6 +6,7 @@ import { Hub } from "./core/hub";
 import { AuthManager } from "./github/auth-manager";
 import { startBridge } from "./mcp/bridge";
 import { registerMcp } from "./mcp/register";
+import { installRouting } from "./routing/runtime";
 import { BackupManager } from "./core/backup-manager";
 import { StateManager } from "./core/state-manager";
 import { downloadExtensionVsix, extensionUpdateAvailable, fetchLatestExtensionRelease, ExtensionRelease } from "./core/extension-updater";
@@ -46,6 +47,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const bridge = await startBridge(paths.bridge, logger, (name, args) => callTool(hub, name, args));
   context.subscriptions.push(bridge);
   registerMcp(context, paths.bridge, logger);
+  try {
+    const routing = await installRouting(context.asAbsolutePath("out/src/routing/runtime.js"), process.execPath);
+    if (routing.needsReload && !context.globalState.get<boolean>("skillsHub.routingReloadPrompted")) {
+      await context.globalState.update("skillsHub.routingReloadPrompted", true);
+      const choice = await vscode.window.showInformationMessage(
+        "Skills Hub will match skills and plugin flows on every message. Reload Cursor to turn that on.",
+        "Reload",
+      );
+      if (choice === "Reload") {
+        await vscode.commands.executeCommand("workbench.action.reloadWindow");
+      }
+    }
+  } catch (error) {
+    logger.error("routing", errorMessage(error));
+  }
   context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((event) => {
     if (event.affectsConfiguration("skillsHub") && !hub.isWritingConfiguration()) {
       void hub.importFromConfiguration();

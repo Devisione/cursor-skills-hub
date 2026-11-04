@@ -5,13 +5,13 @@ export function detectMarketplaceKind(paths: string[]): MarketplaceKind | undefi
   if (normalized.includes(".cursor-plugin/marketplace.json")) {
     return "cursor-marketplace";
   }
-  if (normalized.includes(".cursor-plugin/plugin.json")) {
+  if (normalized.includes(".cursor-plugin/plugin.json") || normalized.includes(".claude-plugin/plugin.json")) {
     return "cursor-plugin";
   }
   if (normalized.includes("plugin.json")) {
     return "agent-plugin";
   }
-  if (normalized.some((item) => item.endsWith("/.cursor-plugin/plugin.json"))) {
+  if (normalized.some((item) => item.endsWith("/.cursor-plugin/plugin.json") || item.endsWith("/.claude-plugin/plugin.json"))) {
     return "cursor-marketplace";
   }
   if (normalized.some((item) => item === "SKILL.md" || item.endsWith("/SKILL.md"))) {

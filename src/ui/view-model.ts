@@ -344,16 +344,23 @@ function score(item: CatalogComponent, terms: string[], category?: string): numb
   if (category && !item.categories.some((value) => value.toLowerCase() === category.toLowerCase())) {
     return 0;
   }
-  if (terms.length === 0) {
-    return 1;
+  const useful = terms.filter((term) => term.length >= 3);
+  if (useful.length === 0) {
+    return terms.length === 0 ? 1 : 0;
   }
-  const haystack = `${item.name} ${item.description} ${item.author ?? ""} ${item.categories.join(" ")}`.toLowerCase();
+  const name = item.name.toLowerCase();
+  const haystack = `${name} ${item.description} ${item.author ?? ""} ${item.categories.join(" ")}`.toLowerCase();
+  let matched = 0;
   let total = 0;
-  for (const term of terms) {
+  for (const term of useful) {
     if (!haystack.includes(term)) {
-      return 0;
+      continue;
     }
-    total += item.name.toLowerCase().includes(term) ? 3 : 1;
+    matched += 1;
+    total += name.includes(term) ? 5 : 1;
   }
-  return total;
+  if (matched === 0) {
+    return 0;
+  }
+  return matched * 10 + total;
 }

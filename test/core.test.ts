@@ -11,7 +11,9 @@ import { freshState } from "../src/core/state-manager";
 import { nextSyncDelay, planSync, remoteSnapshotHandled, sameCommit } from "../src/core/sync-plan";
 import { buildRemoteFiles, parseRemoteFiles } from "../src/github/config-sync";
 import { detectMarketplaceKind } from "../src/marketplaces/marketplace-adapter";
-import { indexCursorMarketplace } from "../src/marketplaces/cursor-adapter";
+import { indexCursorMarketplace, indexPluginRepository } from "../src/marketplaces/cursor-adapter";
+import { preparePluginDirectory } from "../src/plugins/plugin-compat";
+import { mergeRoutingHooks, renderSessionContext } from "../src/routing/instruction";
 import { indexSkillsRepository } from "../src/marketplaces/skills-adapter";
 import { copyTree, pathExists, removeTree } from "../src/utils/filesystem";
 import { parseFrontmatter } from "../src/utils/frontmatter";
@@ -20,10 +22,10 @@ import { isUnsafeRelativePath, redactSecrets } from "../src/utils/security";
 import { BackupManager } from "../src/core/backup-manager";
 import { agentStoreParent } from "../src/core/paths";
 import { materializeRepo } from "../src/utils/git";
-import { githubFolderUrl } from "../src/ui/view-model";
+import { githubFolderUrl, searchCatalog } from "../src/ui/view-model";
 import { forgetLockedSkills, readSkillLock } from "../src/skills/skill-discovery";
 import { installFolderName, separateMarketplaceFolder } from "../src/skills/skill-installer";
-import { InstalledComponent } from "../src/core/types";
+import { CatalogComponent, InstalledComponent } from "../src/core/types";
 import { downloadExtensionVsix, extensionUpdateAvailable, fetchLatestExtensionRelease, isExtensionAssetUrl, parseLatestRelease } from "../src/core/extension-updater";
 
 test("parses Windows frontmatter without dropping the description", () => {
@@ -66,6 +68,8 @@ test("detects supported repositories and ignores random ones", () => {
   assert.equal(detectMarketplaceKind(["README.md"]), undefined);
   assert.equal(detectMarketplaceKind(["skills/review/SKILL.md"]), "skills-catalog");
   assert.equal(detectMarketplaceKind([".cursor-plugin/plugin.json", "skills/review/SKILL.md"]), "cursor-plugin");
+  assert.equal(detectMarketplaceKind([".claude-plugin/plugin.json", "skills/ship/SKILL.md"]), "cursor-plugin");
+  assert.equal(detectMarketplaceKind(["packs/ship/.claude-plugin/plugin.json"]), "cursor-marketplace");
   assert.equal(detectMarketplaceKind([".cursor-plugin/marketplace.json", "teaching/skills/demo/SKILL.md"]), "cursor-marketplace");
 });
 
@@ -426,7 +430,8 @@ test("mcp server tells the agent to search skills before a task", async () => {
     const initResult = initialized.result as { protocolVersion?: string; instructions?: string };
     assert.equal(initResult.protocolVersion, "2025-06-18");
     assert.match(initResult.instructions ?? "", /search_skills/);
-    assert.match(initResult.instructions ?? "", /Before doing the user's task/);
+    assert.match(initResult.instructions ?? "", /every user message/);
+    assert.match(initResult.instructions ?? "", /follow-up/);
 
     send({ jsonrpc: "2.0", method: "notifications/initialized" });
     send({ jsonrpc: "2.0", id: 2, method: "tools/list" });
@@ -434,7 +439,7 @@ test("mcp server tells the agent to search skills before a task", async () => {
     const listedTools = (listed.result as { tools?: Array<{ name: string; description: string }> }).tools ?? [];
     const search = listedTools.find((tool) => tool.name === "search_skills");
     assert.ok(search);
-    assert.match(search.description, /before doing the user's task/i);
+    assert.match(search.description, /every user message/i);
 
     send({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "search_skills", arguments: { query: "review a pull request" } } });
     const called = await incoming.next();
@@ -444,6 +449,116 @@ test("mcp server tells the agent to search skills before a task", async () => {
   } finally {
     child.kill();
     bridge.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("session context tells the agent to match follow-up messages", () => {
+  const text = renderSessionContext([
+    {
+      kind: "skill",
+      name: "banner-design",
+      description: "Design a banner when the user asks for a banner or a cover image.",
+      file: "C:/skills/banner-design/SKILL.md",
+      scope: "user",
+    },
+    {
+      kind: "command",
+      name: "ship",
+      description: "Ship the current branch.",
+      file: "C:/plugins/ship/commands/ship.md",
+      scope: "project",
+    },
+  ]);
+  assert.match(text, /follow-up/);
+  assert.match(text, /search_skills/);
+  assert.match(text, /follow all of them/);
+  assert.match(text, /banner-design/);
+  assert.match(text, /Plugin commands/);
+  assert.match(text, /ship\.md/);
+});
+
+test("search keeps every skill that fits the task", () => {
+  const found = searchCatalog([
+    catalogSkill("stop-slop", "Remove AI writing patterns from prose. Use when drafting, editing, or reviewing text."),
+    catalogSkill("copywriting", "Write marketing copy for a landing page."),
+    catalogSkill("unity-physics", "Tune rigidbodies and colliders."),
+  ], [], "write the landing page text", undefined, 10);
+  assert.deepEqual(found.map((item) => item.name), ["copywriting", "stop-slop"]);
+});
+
+test("keeps user hooks while routing every new chat", () => {
+  const merged = mergeRoutingHooks({
+    version: 1,
+    hooks: {
+      beforeShellExecution: [{ command: "audit.sh" }],
+      sessionStart: [{ command: "C:/hooks/skills-hub-route.ps1" }, { command: "mine.sh" }],
+    },
+  }, "powershell.exe -File \"C:/hooks/skills-hub-route.ps1\"");
+  const hooks = merged.hooks as {
+    sessionStart: Array<{ command: string }>;
+    beforeShellExecution: Array<{ command: string }>;
+  };
+  assert.equal(hooks.beforeShellExecution[0]?.command, "audit.sh");
+  assert.equal(hooks.sessionStart.length, 2);
+  assert.equal(hooks.sessionStart[0]?.command, "mine.sh");
+  assert.match(hooks.sessionStart[1]?.command ?? "", /skills-hub-route/);
+});
+
+test("indexes a Claude plugin manifest", () => {
+  const files = new Map<string, string>([
+    [".claude-plugin/plugin.json", JSON.stringify({ name: "ship-it", description: "Ship", version: "2.0.0" })],
+    ["skills/ship/SKILL.md", "---\nname: ship\ndescription: Ship the branch\n---\n"],
+  ]);
+  const indexed = indexPluginRepository({
+    marketplaceId: "mkt_test",
+    repositoryUrl: "https://github.com/acme/ship",
+    commitSha: "b".repeat(40),
+    paths: [...files.keys()],
+    files,
+    checkedAt: "2026-11-04T00:00:00.000Z",
+    kind: "cursor-plugin",
+  });
+  assert.equal(indexed.length, 2);
+  assert.equal(indexed.find((item) => item.type === "plugin")?.name, "ship-it");
+});
+
+test("turns a Claude plugin into a Cursor plugin Cursor can run", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "skills-hub-plugin-"));
+  await mkdir(path.join(root, ".claude-plugin"), { recursive: true });
+  await mkdir(path.join(root, "hooks"), { recursive: true });
+  await mkdir(path.join(root, "commands"), { recursive: true });
+  await writeFile(path.join(root, ".claude-plugin", "plugin.json"), JSON.stringify({
+    name: "ship-it",
+    description: "Ship the branch",
+    version: "1.0.0",
+  }));
+  await writeFile(path.join(root, "plugin.json"), JSON.stringify({ name: "ship-it", description: "Ship the branch" }));
+  await writeFile(path.join(root, "hooks", "hooks.json"), JSON.stringify({
+    hooks: {
+      UserPromptSubmit: [{ hooks: [{ type: "command", command: "node ${CLAUDE_PLUGIN_ROOT}/scripts/prompt.js" }] }],
+      PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "node ${CLAUDE_PLUGIN_ROOT}/scripts/check.js" }] }],
+    },
+  }));
+  await writeFile(path.join(root, ".mcp.json"), JSON.stringify({
+    mcpServers: { ship: { command: "node", args: ["${CLAUDE_PLUGIN_ROOT}/server.js"] } },
+  }));
+  await writeFile(path.join(root, "commands", "ship.md"), "---\nname: ship\ndescription: Ship it\n---\nRun ${CLAUDE_PLUGIN_ROOT}/scripts/ship.js\n");
+  try {
+    assert.equal(await preparePluginDirectory(root), true);
+    const manifest = JSON.parse(await readFile(path.join(root, ".cursor-plugin", "plugin.json"), "utf8")) as { name: string; hooks: string };
+    assert.equal(manifest.name, "ship-it");
+    assert.equal(manifest.hooks, "hooks/hooks.json");
+    const hooks = JSON.parse(await readFile(path.join(root, "hooks", "hooks.json"), "utf8")) as {
+      hooks: Record<string, Array<{ command: string; matcher?: string }>>;
+    };
+    assert.match(hooks.hooks.beforeSubmitPrompt?.[0]?.command ?? "", /CURSOR_PLUGIN_ROOT/);
+    assert.equal(hooks.hooks.preToolUse?.[0]?.matcher, "Shell");
+    assert.match(await readFile(path.join(root, "mcp.json"), "utf8"), /CURSOR_PLUGIN_ROOT/);
+    assert.equal(await pathExists(path.join(root, "plugin.json")), false);
+    assert.match(await readFile(path.join(root, "commands", "ship.md"), "utf8"), /CURSOR_PLUGIN_ROOT/);
+    assert.equal(await preparePluginDirectory(root), false);
+  } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
@@ -486,6 +601,22 @@ function mcpLines(stream: NodeJS.ReadableStream): { next(): Promise<{ id?: numbe
         });
       });
     },
+  };
+}
+
+function catalogSkill(name: string, description: string): CatalogComponent {
+  return {
+    id: name,
+    type: "skill",
+    name,
+    description,
+    marketplaceId: "mkt_test",
+    repositoryUrl: "https://example.com/skills",
+    pathInRepo: name,
+    categories: [],
+    capabilities: [],
+    dependencies: [],
+    checkedAt: "2026-11-04T00:00:00.000Z",
   };
 }
 

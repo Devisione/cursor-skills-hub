@@ -458,7 +458,7 @@ function pluginKeyFromPath(directory: string): string | undefined {
 }
 
 async function readPluginLabel(directory: string): Promise<{ name: string; label: string; repository?: string } | undefined> {
-  for (const relative of [path.join(".cursor-plugin", "plugin.json"), "plugin.json"]) {
+  for (const relative of [path.join(".cursor-plugin", "plugin.json"), path.join(".claude-plugin", "plugin.json"), "plugin.json"]) {
     const file = path.join(directory, relative);
     if (!(await pathExists(file))) {
       continue;

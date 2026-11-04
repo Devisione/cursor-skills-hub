@@ -4,6 +4,7 @@ import { installRoot, WorkspaceHint } from "../core/paths";
 import { HubError } from "../utils/errors";
 import { checksumDirectory, copyTree, ensureDir, moveAside, pathExists, removeTree } from "../utils/filesystem";
 import { materializeRepo } from "../utils/git";
+import { preparePluginDirectory } from "./plugin-compat";
 import { validatePluginDirectory } from "./plugin-validator";
 
 export async function installPlugin(input: {
@@ -48,6 +49,7 @@ export async function installPlugin(input: {
       await removeTree(staging, root);
     }
     await copyTree(source, staging);
+    await preparePluginDirectory(staging);
     await validatePluginDirectory(staging);
     let backupPath: string | undefined;
     if (await pathExists(destination)) {
@@ -80,7 +82,7 @@ export async function installPlugin(input: {
       checksum: await checksumDirectory(destination),
       location,
       scope: input.scope,
-      note: "Cursor loads plugins from this directory. Reload the window if the plugin does not appear.",
+      note: "Cursor loads this plugin's skills, rules, commands, agents, and hooks. Reload the window if they do not appear.",
       backupPath,
     };
   } finally {

@@ -13,6 +13,8 @@ import { AuthManager } from "../github/auth-manager";
 import { createConfigRepo } from "../github/repository-manager";
 import { indexMarketplace } from "../marketplaces/marketplace-manager";
 import { discoverInstalledPlugins } from "../plugins/plugin-discovery";
+import { preparePluginDirectory } from "../plugins/plugin-compat";
+import { isRoutingPlugin } from "../routing/instruction";
 import { agentGridSkillPath, discoverInstalledSkills, forgetLockedSkills, publishSkillToAgentGrid, recordSkillSource, updateLockedBundle } from "../skills/skill-discovery";
 import { installFolderName, separateMarketplaceFolder, uninstallSkill } from "../skills/skill-installer";
 import { CacheManager } from "../storage/cache-manager";
@@ -76,7 +78,9 @@ export class Hub {
     } else {
       await this.exportToConfiguration();
     }
+    const normalized = await this.normalizeInstalledPlugins();
     await this.refreshLocal();
+    await this.acceptNormalizedPlugins(normalized);
     const session = await this.auth.current(false).catch(() => undefined);
     this.connected = !!session;
     this.login = session?.login;
@@ -1141,6 +1145,50 @@ export class Hub {
 
   private workspace() {
     return { workspacePath: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath };
+  }
+
+  private async normalizeInstalledPlugins(): Promise<string[]> {
+    try {
+      const plugins = await discoverInstalledPlugins(this.workspace());
+      const changed: string[] = [];
+      for (const plugin of plugins) {
+        if (isRoutingPlugin(plugin.installPath)) {
+          continue;
+        }
+        try {
+          if (await preparePluginDirectory(plugin.installPath)) {
+            changed.push(plugin.installPath);
+          }
+        } catch (error) {
+          this.logger.warn("plugin", `Could not prepare ${plugin.name}. ${errorMessage(error)}`);
+        }
+      }
+      return changed;
+    } catch (error) {
+      this.logger.warn("plugin", errorMessage(error));
+      return [];
+    }
+  }
+
+  private async acceptNormalizedPlugins(paths: string[]): Promise<void> {
+    if (paths.length === 0) {
+      return;
+    }
+    const disk = await discoverInstalledPlugins(this.workspace());
+    await this.state.update((state) => {
+      for (const item of state.installed) {
+        if (item.type !== "plugin") {
+          continue;
+        }
+        const match = disk.find((plugin) => pathsEqual(plugin.installPath, item.installPath) && paths.some((changed) => pathsEqual(changed, item.installPath)));
+        if (!match) {
+          continue;
+        }
+        item.checksum = match.checksum;
+        item.lastError = undefined;
+        item.status = statusFromFlags({ ...item, status: "up-to-date" });
+      }
+    });
   }
 
   private async refreshLocal(): Promise<void> {
