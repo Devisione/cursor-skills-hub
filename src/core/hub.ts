@@ -844,11 +844,10 @@ export class Hub {
     await vscode.commands.executeCommand("vscode.diff", vscode.Uri.file(leftFile), vscode.Uri.file(rightFile), `${installed.name}: installed ↔ available`);
   }
 
-  search(query: string, category?: string, limit = 10) {
+  search(query: string, category?: string) {
     const snapshot = this.state.snapshot();
-    const safeLimit = Math.min(Math.max(limit, 1), 50);
     const installed = new Map(snapshot.installed.map((entry) => [entry.id, entry]));
-    return searchCatalog(this.catalog, snapshot.installed, query, category, safeLimit).map((item) => ({
+    return searchCatalog(this.catalog, snapshot.installed, query, category).map((item) => ({
       id: item.id,
       name: item.name,
       description: item.description,
@@ -856,6 +855,7 @@ export class Hub {
       installed: item.installed,
       installPath: installed.get(item.id)?.installPath,
       version: item.version || item.commitSha,
+      score: item.score,
     }));
   }
 

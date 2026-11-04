@@ -240,7 +240,7 @@ async function installExtensionRelease(
 async function callTool(hub: Hub, name: string, args: Record<string, unknown>): Promise<unknown> {
   switch (name) {
     case "search_skills":
-      return hub.search(String(args.query ?? ""), typeof args.category === "string" ? args.category : undefined, Number(args.limit ?? 10));
+      return hub.search(String(args.query ?? ""), typeof args.category === "string" ? args.category : undefined);
     case "get_skill_info":
       return hub.skillInfo(String(args.skill_id ?? ""));
     case "install_skill": {

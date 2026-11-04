@@ -321,7 +321,7 @@ function syncLabel(state: HubState, connected: boolean): string {
   }
 }
 
-export function searchCatalog(catalog: CatalogComponent[], installed: InstalledComponent[], query: string, category: string | undefined, limit: number): Array<CatalogComponent & { installed: boolean; version?: string }> {
+export function searchCatalog(catalog: CatalogComponent[], installed: InstalledComponent[], query: string, category?: string): Array<CatalogComponent & { installed: boolean; version?: string; score: number }> {
   const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
   const installedIds = new Map(installed.map((item) => [item.id, item]));
   return catalog
@@ -329,13 +329,13 @@ export function searchCatalog(catalog: CatalogComponent[], installed: InstalledC
     .map((item) => ({ item, score: score(item, terms, category) }))
     .filter((entry) => entry.score > 0)
     .sort((left, right) => right.score - left.score || left.item.name.localeCompare(right.item.name))
-    .slice(0, limit)
-    .map(({ item }) => {
+    .map(({ item, score: hit }) => {
       const existing = installedIds.get(item.id);
       return {
         ...item,
         installed: !!existing,
         version: existing?.version,
+        score: hit,
       };
     });
 }

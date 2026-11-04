@@ -28,7 +28,6 @@ const tools = [
       properties: {
         query: { type: "string", description: "The user's task, in a few words." },
         category: { type: "string" },
-        limit: { type: "number" },
       },
       required: ["query"],
     },

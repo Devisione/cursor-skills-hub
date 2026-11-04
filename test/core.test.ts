@@ -473,18 +473,27 @@ test("session context tells the agent to match follow-up messages", () => {
   assert.match(text, /follow-up/);
   assert.match(text, /search_skills/);
   assert.match(text, /follow all of them/);
+  assert.match(text, /hit score/);
   assert.match(text, /banner-design/);
   assert.match(text, /Plugin commands/);
   assert.match(text, /ship\.md/);
 });
 
-test("search keeps every skill that fits the task", () => {
+test("search scores every match and does not cut the list", () => {
+  const extras = Array.from({ length: 12 }, (_, index) => catalogSkill(`extra-${index}`, "Write some text for a note."));
   const found = searchCatalog([
     catalogSkill("stop-slop", "Remove AI writing patterns from prose. Use when drafting, editing, or reviewing text."),
     catalogSkill("copywriting", "Write marketing copy for a landing page."),
+    catalogSkill("godot-shaders", "Write a fragment shader that samples a screen texture."),
     catalogSkill("unity-physics", "Tune rigidbodies and colliders."),
-  ], [], "write the landing page text", undefined, 10);
-  assert.deepEqual(found.map((item) => item.name), ["copywriting", "stop-slop"]);
+    ...extras,
+  ], [], "write text");
+  assert.equal(found.some((item) => item.name === "unity-physics"), false);
+  assert.equal(found.some((item) => item.name === "stop-slop"), true);
+  assert.equal(found.some((item) => item.name === "godot-shaders"), true);
+  assert.ok(found.length > 10);
+  assert.ok(found.every((item, index) => index === 0 || found[index - 1].score >= item.score));
+  assert.ok((found.find((item) => item.name === "stop-slop")?.score ?? 0) > 0);
 });
 
 test("keeps user hooks while routing every new chat", () => {

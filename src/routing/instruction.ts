@@ -5,16 +5,17 @@ export const ROUTING_INSTRUCTIONS = [
   "Skip it only when the message is just an acknowledgement, or a clarification of a skill you already loaded for this same request.",
   "The user does not have to mention a skill, a plugin, or a marketplace.",
   "Compare the latest message with the skill descriptions already in the prompt, and with any installed skills, plugin commands, and plugin agents listed after this instruction.",
-  "When more than one skill fits the message, read each matching SKILL.md and follow all of them before doing the task.",
   "Call search_skills with a short description of that latest message.",
   "Search only marketplaces already connected in Skills Hub.",
-  "For each result that fits the message, install it when installed is false, then read its SKILL.md and follow it.",
-  "A result that only shares a word does not fit.",
+  "The search returns every matching skill and a hit score. It does not cut the list. The score only counts shared words.",
+  "Decide which returned skills this task needs. Drop a skill when the score comes from an unrelated meaning, such as a shader or Swift skill matching the words write or text.",
+  "When more than one skill fits, read each matching SKILL.md and follow all of them before doing the task.",
+  "For each skill that fits, install it when installed is false, then read its SKILL.md and follow it.",
   "If nothing fits, do the task and do not install a skill.",
   "An earlier search does not cover a later message.",
 ].join(" ");
 
-export const SEARCH_SKILLS_DESCRIPTION = "Search skills in marketplaces connected to Cursor Skills Hub. Call this on every user message that asks for work, including follow-ups, before other work. The user does not need to ask for a skill. This does not install anything. The list can contain several skills. Follow every result whose description fits the task, not only the first. A shared word is not a fit. Each result says whether that skill is already installed and, when it is, includes installPath.";
+export const SEARCH_SKILLS_DESCRIPTION = "Search skills in marketplaces connected to Cursor Skills Hub. Call this on every user message that asks for work, including follow-ups, before other work. The user does not need to ask for a skill. This does not install anything. Every match is returned with a hit score, and the list is not cut. The score counts shared words and does not decide which skill is needed. Keep only the skills this task needs, and drop a match that comes from an unrelated use of the same word. Each result says whether that skill is already installed and, when it is, includes installPath.";
 
 export interface RoutedItem {
   kind: "skill" | "command" | "agent";
