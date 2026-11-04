@@ -1,6 +1,5 @@
 import { readFileSync } from "fs";
 import { request } from "http";
-import { ROUTING_INSTRUCTIONS, SEARCH_SKILLS_DESCRIPTION } from "../routing/instruction";
 
 interface BridgeFile {
   port: number;
@@ -17,12 +16,12 @@ interface RpcMessage {
   };
 }
 
-const instructions = ROUTING_INSTRUCTIONS;
+const instructions = "These tools search and install skills from marketplaces connected in Skills Hub. Cursor decides when an installed skill applies.";
 
 const tools = [
   {
     name: "search_skills",
-    description: SEARCH_SKILLS_DESCRIPTION,
+    description: "Search skills in marketplaces connected to Cursor Skills Hub. This does not install anything.",
     inputSchema: {
       type: "object",
       properties: {
@@ -43,7 +42,7 @@ const tools = [
   },
   {
     name: "install_skill",
-    description: "Install one skill returned by search_skills into a directory Cursor scans. Refuses an id that is not in a connected marketplace. After it returns, read SKILL.md inside installPath and follow it.",
+    description: "Install one skill from a connected marketplace into a directory Cursor scans. Refuses an id that is not in a connected marketplace.",
     inputSchema: {
       type: "object",
       properties: {

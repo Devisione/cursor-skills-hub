@@ -12,9 +12,8 @@ import { checkInstalledUpdates, updatesFor } from "./update-manager";
 import { AuthManager } from "../github/auth-manager";
 import { createConfigRepo } from "../github/repository-manager";
 import { indexMarketplace } from "../marketplaces/marketplace-manager";
-import { discoverInstalledPlugins } from "../plugins/plugin-discovery";
+import { discoverInstalledPlugins, isSkillsHubRouting } from "../plugins/plugin-discovery";
 import { preparePluginDirectory } from "../plugins/plugin-compat";
-import { isRoutingPlugin } from "../routing/instruction";
 import { agentGridSkillPath, discoverInstalledSkills, forgetLockedSkills, publishSkillToAgentGrid, recordSkillSource, updateLockedBundle } from "../skills/skill-discovery";
 import { installFolderName, separateMarketplaceFolder, uninstallSkill } from "../skills/skill-installer";
 import { CacheManager } from "../storage/cache-manager";
@@ -1152,7 +1151,7 @@ export class Hub {
       const plugins = await discoverInstalledPlugins(this.workspace());
       const changed: string[] = [];
       for (const plugin of plugins) {
-        if (isRoutingPlugin(plugin.installPath)) {
+        if (isSkillsHubRouting(plugin.installPath)) {
           continue;
         }
         try {

@@ -6,7 +6,7 @@ import { Hub } from "./core/hub";
 import { AuthManager } from "./github/auth-manager";
 import { startBridge } from "./mcp/bridge";
 import { registerMcp } from "./mcp/register";
-import { installRouting } from "./routing/runtime";
+import { removeInstalledRouting } from "./routing/runtime";
 import { BackupManager } from "./core/backup-manager";
 import { StateManager } from "./core/state-manager";
 import { downloadExtensionVsix, extensionUpdateAvailable, fetchLatestExtensionRelease, ExtensionRelease } from "./core/extension-updater";
@@ -48,11 +48,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(bridge);
   registerMcp(context, paths.bridge, logger);
   try {
-    const routing = await installRouting(context.asAbsolutePath("out/src/routing/runtime.js"), process.execPath);
-    if (routing.needsReload && !context.globalState.get<boolean>("skillsHub.routingReloadPrompted")) {
-      await context.globalState.update("skillsHub.routingReloadPrompted", true);
+    const removed = await removeInstalledRouting();
+    if (removed && !context.globalState.get<boolean>("skillsHub.routingRemovedPrompted")) {
+      await context.globalState.update("skillsHub.routingRemovedPrompted", true);
       const choice = await vscode.window.showInformationMessage(
-        "Skills Hub will match skills and plugin flows on every message. Reload Cursor to turn that on.",
+        "Skills Hub no longer chooses skills for the agent. Reload Cursor to drop the old rule.",
         "Reload",
       );
       if (choice === "Reload") {

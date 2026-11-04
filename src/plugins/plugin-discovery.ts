@@ -4,7 +4,6 @@ import path from "path";
 import { InstallLocation, InstallScope } from "../core/types";
 import { scannedPluginRoots, WorkspaceHint } from "../core/paths";
 import { checksumDirectory, pathExists } from "../utils/filesystem";
-import { isRoutingPlugin } from "../routing/instruction";
 import { validatePluginDirectory } from "./plugin-validator";
 
 export interface DiscoveredPlugin {
@@ -26,7 +25,7 @@ export async function discoverInstalledPlugins(workspace?: WorkspaceHint): Promi
     }
     const entries = await readdir(root.root, { withFileTypes: true });
     for (const entry of entries) {
-      if (!entry.isDirectory() || entry.name.startsWith(".") || isRoutingPlugin(entry.name)) {
+      if (!entry.isDirectory() || entry.name.startsWith(".") || isSkillsHubRouting(entry.name)) {
         continue;
       }
       const directory = path.join(root.root, entry.name);
@@ -48,4 +47,9 @@ export async function discoverInstalledPlugins(workspace?: WorkspaceHint): Promi
     }
   }
   return found;
+}
+
+export function isSkillsHubRouting(installPath: string): boolean {
+  const name = installPath.replace(/\\/g, "/").split("/").pop() ?? "";
+  return name.toLowerCase() === "skills-hub-routing";
 }

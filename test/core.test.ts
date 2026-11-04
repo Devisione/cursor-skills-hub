@@ -13,7 +13,7 @@ import { buildRemoteFiles, parseRemoteFiles } from "../src/github/config-sync";
 import { detectMarketplaceKind } from "../src/marketplaces/marketplace-adapter";
 import { indexCursorMarketplace, indexPluginRepository } from "../src/marketplaces/cursor-adapter";
 import { preparePluginDirectory } from "../src/plugins/plugin-compat";
-import { mergeRoutingHooks, renderSessionContext } from "../src/routing/instruction";
+import { stripRoutingHooks } from "../src/routing/runtime";
 import { indexSkillsRepository } from "../src/marketplaces/skills-adapter";
 import { copyTree, pathExists, removeTree } from "../src/utils/filesystem";
 import { parseFrontmatter } from "../src/utils/frontmatter";
@@ -407,7 +407,7 @@ test("downloads the extension package through the GitHub release host only", asy
   })), /not an extension package/);
 });
 
-test("mcp server tells the agent to search skills before a task", async () => {
+test("mcp server searches marketplaces without choosing skills", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "skills-hub-mcp-"));
   const bridgeFile = path.join(root, "bridge.json");
   const bridge = await startBridge(bridgeFile, new Logger({ append() { return undefined; } }), async (name, args) => {
@@ -429,17 +429,19 @@ test("mcp server tells the agent to search skills before a task", async () => {
     assert.equal(initialized.id, 1);
     const initResult = initialized.result as { protocolVersion?: string; instructions?: string };
     assert.equal(initResult.protocolVersion, "2025-06-18");
-    assert.match(initResult.instructions ?? "", /search_skills/);
-    assert.match(initResult.instructions ?? "", /every user message/);
-    assert.match(initResult.instructions ?? "", /follow-up/);
+    assert.doesNotMatch(initResult.instructions ?? "", /invoke_skill/);
+    assert.doesNotMatch(initResult.instructions ?? "", /before any other tool/);
+    assert.match(initResult.instructions ?? "", /Cursor decides/);
 
     send({ jsonrpc: "2.0", method: "notifications/initialized" });
     send({ jsonrpc: "2.0", id: 2, method: "tools/list" });
     const listed = await incoming.next();
     const listedTools = (listed.result as { tools?: Array<{ name: string; description: string }> }).tools ?? [];
+    assert.equal(listedTools.some((tool) => tool.name === "invoke_skill"), false);
     const search = listedTools.find((tool) => tool.name === "search_skills");
     assert.ok(search);
-    assert.match(search.description, /every user message/i);
+    assert.doesNotMatch(search.description, /every user message/i);
+    assert.doesNotMatch(search.description, /invoke_skill/);
 
     send({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "search_skills", arguments: { query: "review a pull request" } } });
     const called = await incoming.next();
@@ -451,32 +453,6 @@ test("mcp server tells the agent to search skills before a task", async () => {
     bridge.dispose();
     await rm(root, { recursive: true, force: true });
   }
-});
-
-test("session context tells the agent to match follow-up messages", () => {
-  const text = renderSessionContext([
-    {
-      kind: "skill",
-      name: "banner-design",
-      description: "Design a banner when the user asks for a banner or a cover image.",
-      file: "C:/skills/banner-design/SKILL.md",
-      scope: "user",
-    },
-    {
-      kind: "command",
-      name: "ship",
-      description: "Ship the current branch.",
-      file: "C:/plugins/ship/commands/ship.md",
-      scope: "project",
-    },
-  ]);
-  assert.match(text, /follow-up/);
-  assert.match(text, /search_skills/);
-  assert.match(text, /follow all of them/);
-  assert.match(text, /hit score/);
-  assert.match(text, /banner-design/);
-  assert.match(text, /Plugin commands/);
-  assert.match(text, /ship\.md/);
 });
 
 test("search scores every match and does not cut the list", () => {
@@ -496,22 +472,24 @@ test("search scores every match and does not cut the list", () => {
   assert.ok((found.find((item) => item.name === "stop-slop")?.score ?? 0) > 0);
 });
 
-test("keeps user hooks while routing every new chat", () => {
-  const merged = mergeRoutingHooks({
+test("removes the routing hook and leaves other hooks in place", () => {
+  const stripped = stripRoutingHooks({
     version: 1,
     hooks: {
       beforeShellExecution: [{ command: "audit.sh" }],
       sessionStart: [{ command: "C:/hooks/skills-hub-route.ps1" }, { command: "mine.sh" }],
+      beforeSubmitPrompt: [{ command: "powershell.exe -File \"C:/hooks/skills-hub-route.ps1\"" }],
     },
-  }, "powershell.exe -File \"C:/hooks/skills-hub-route.ps1\"");
-  const hooks = merged.hooks as {
+  });
+  const hooks = stripped.value.hooks as {
     sessionStart: Array<{ command: string }>;
+    beforeSubmitPrompt?: Array<{ command: string }>;
     beforeShellExecution: Array<{ command: string }>;
   };
+  assert.equal(stripped.changed, true);
   assert.equal(hooks.beforeShellExecution[0]?.command, "audit.sh");
-  assert.equal(hooks.sessionStart.length, 2);
-  assert.equal(hooks.sessionStart[0]?.command, "mine.sh");
-  assert.match(hooks.sessionStart[1]?.command ?? "", /skills-hub-route/);
+  assert.deepEqual(hooks.sessionStart.map((item) => item.command), ["mine.sh"]);
+  assert.equal(hooks.beforeSubmitPrompt, undefined);
 });
 
 test("indexes a Claude plugin manifest", () => {
